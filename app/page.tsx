@@ -7,7 +7,7 @@ import { useQuizStore, Question } from '@/store/useQuizStore';
 import { 
   BookOpen, Award, BrainCircuit, Play, 
   HelpCircle, AlertCircle, X, Layers, Settings, Sparkles, TrendingUp, BarChart,
-  Trash2, Calendar
+  Calendar
 } from 'lucide-react';
 
 interface ScoreHistoryItem {
@@ -730,7 +730,9 @@ export default function Dashboard() {
                 return (
                   <div 
                     key={test.id} 
-                    className="p-4 bg-slate-50 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                    onClick={() => router.push(`/results?test_id=${test.id}`)}
+                    className="p-4 bg-slate-50 hover:bg-indigo-50/20 hover:border-indigo-250 border border-slate-200 rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group cursor-pointer"
+                    title="चाचणी पुनरावलोकन व स्पष्टीकरण पहा"
                   >
                     <div className="space-y-1.5 flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -769,20 +771,6 @@ export default function Dashboard() {
                           {percentage}%
                         </div>
                       </div>
-                      
-                      {/* Delete Button */}
-                      <button
-                        onClick={() => handleDeleteTest(test.id)}
-                        disabled={deletingTestId === test.id}
-                        className="p-2 text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-all disabled:opacity-50"
-                        title="चाचणी इतिहास हटवा"
-                      >
-                        {deletingTestId === test.id ? (
-                          <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full"></span>
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
                     </div>
                   </div>
                 );

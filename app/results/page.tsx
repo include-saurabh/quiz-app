@@ -6,7 +6,7 @@ import { useQuizStore, Question } from '@/store/useQuizStore';
 import { supabase } from '@/lib/supabase';
 import { 
   Award, CheckCircle, XCircle, AlertCircle, Home, 
-  RefreshCw, ChevronRight, Eye, ArrowRight 
+  RefreshCw, ChevronRight, ArrowRight 
 } from 'lucide-react';
 
 export default function ResultsPage() {
@@ -21,8 +21,11 @@ export default function ResultsPage() {
   const resetQuiz = useQuizStore((state) => state.resetQuiz);
 
   const [isClient, setIsClient] = useState(false);
+  const [testId, setTestId] = useState<string | null>(null);
+  const [loadingPastTest, setLoadingPastTest] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState(true);
   const [dbError, setDbError] = useState<string>('');
+  
   const [stats, setStats] = useState({
     correct: 0,
     incorrect: 0,
@@ -30,80 +33,187 @@ export default function ResultsPage() {
     percentage: 0,
   });
 
+  const [viewQuestions, setViewQuestions] = useState<Question[]>([]);
+  const [viewAnswers, setViewAnswers] = useState<Record<string, number | null>>({});
+  const [viewTestType, setViewTestType] = useState<string>('');
+  const [viewTopics, setViewTopics] = useState<string[]>([]);
+
   const hasSubmitted = useRef(false);
 
+  // 1. Initial mounting check and URL query param parse
   useEffect(() => {
     setIsClient(true);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setTestId(params.get('test_id'));
+    }
   }, []);
 
-  // Calculate results and save to Database on mount
+  // 2. Main data fetching / calculation
   useEffect(() => {
-    if (!isClient || questions.length === 0 || hasSubmitted.current) return;
-    hasSubmitted.current = true;
+    if (!isClient) return;
 
-    // 1. Calculate scores
-    let correct = 0;
-    let incorrect = 0;
-    let unanswered = 0;
+    const loadData = async () => {
+      // PATH A: Viewing a past test history record from URL param
+      if (testId) {
+        setLoadingPastTest(true);
+        setSubmitting(false);
+        try {
+          // Fetch test attempt
+          const { data: testData, error: testError } = await supabase
+            .from('test_history')
+            .select('*')
+            .eq('id', testId)
+            .single();
 
-    const questionResults = questions.map((q) => {
-      const selected = answers[q.id];
-      const isCorrect = selected !== undefined && selected !== null && selected === q.correct_option;
-      
-      if (selected === undefined || selected === null) {
-        unanswered++;
-      } else if (isCorrect) {
-        correct++;
-      } else {
-        incorrect++;
-      }
+          if (testError || !testData) {
+            throw new Error(testError?.message || 'Test history record not found.');
+          }
 
-      return {
-        question_id: q.id,
-        subject: q.subject,
-        topic: q.topic,
-        selected_option: selected !== undefined ? selected : null,
-        correct_option: q.correct_option,
-        is_correct: isCorrect,
-      };
-    });
+          const questionResults = testData.question_results || [];
+          const questionIds = questionResults.map((r: any) => r.question_id);
 
-    const percentage = Math.round((correct / questions.length) * 100);
-    setStats({ correct, incorrect, unanswered, percentage });
+          // Fetch full question texts and explanations
+          const { data: qsData, error: qsError } = await supabase
+            .from('questions')
+            .select('*')
+            .in('id', questionIds);
 
-    // 2. Insert into Supabase test_history via server-side API
-    const saveResults = async () => {
-      try {
-        const finalUserId = user_id || useQuizStore.getState().user_id || useQuizStore.getState().initUserId();
-        
-        const res = await fetch('/api/save-test-history', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId: finalUserId,
-            testType: testType || 'topic-wise',
-            topics: selectedTopics,
-            score: correct,
-            totalQuestions: questions.length,
-            questionResults,
-          }),
-        });
+          if (qsError || !qsData) {
+            throw new Error(qsError?.message || 'Failed to fetch question text.');
+          }
 
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || 'Failed to save test results');
+          // Map data back into Question format
+          const reconstructedQuestions = qsData.map((q: any) => ({
+            id: q.id,
+            subject: q.subject || 'सामान्य',
+            topic: q.topic,
+            question_text: q.question_text,
+            options: Array.isArray(q.options) ? q.options : [],
+            correct_option: q.correct_option,
+            explanation: q.explanation,
+            image_url: q.image_url,
+          }));
+
+          const reconstructedAnswers: Record<string, number | null> = {};
+          questionResults.forEach((r: any) => {
+            reconstructedAnswers[r.question_id] = r.selected_option;
+          });
+
+          // Calculate correct/incorrect aggregates
+          let correct = 0;
+          let incorrect = 0;
+          let unanswered = 0;
+
+          questionResults.forEach((r: any) => {
+            if (r.selected_option === null || r.selected_option === undefined) {
+              unanswered++;
+            } else if (r.is_correct) {
+              correct++;
+            } else {
+              incorrect++;
+            }
+          });
+
+          const percentage = testData.total_questions > 0 ? Math.round((testData.score / testData.total_questions) * 100) : 0;
+
+          setStats({ correct, incorrect, unanswered, percentage });
+          setViewQuestions(reconstructedQuestions);
+          setViewAnswers(reconstructedAnswers);
+          setViewTestType(testData.test_type);
+          setViewTopics(testData.topics || []);
+
+        } catch (err: any) {
+          console.error('Error loading past test history details:', err);
+          setDbError('मागील चाचणीचा निकाल लोड करताना अडचण आली.');
+        } finally {
+          setLoadingPastTest(false);
         }
 
-      } catch (err: any) {
-        console.error('Error inserting test history:', err);
-        setDbError('निकाल डेटाबेसमध्ये जतन करताना अडचण आली.');
-      } finally {
-        setSubmitting(false);
+      } else {
+        // PATH B: Processing a newly completed live quiz
+        if (questions.length === 0) {
+          // If no questions in store, redirect to dashboard
+          router.push('/');
+          return;
+        }
+
+        if (hasSubmitted.current) return;
+        hasSubmitted.current = true;
+
+        // Populate views directly from Zustand Store
+        setViewQuestions(questions);
+        setViewAnswers(answers);
+        setViewTestType(testType || 'topic-wise');
+        setViewTopics(selectedTopics);
+
+        // Calculate scores
+        let correct = 0;
+        let incorrect = 0;
+        let unanswered = 0;
+
+        const questionResults = questions.map((q) => {
+          const selected = answers[q.id];
+          const isCorrect = selected !== undefined && selected !== null && selected === q.correct_option;
+          
+          if (selected === undefined || selected === null) {
+            unanswered++;
+          } else if (isCorrect) {
+            correct++;
+          } else {
+            incorrect++;
+          }
+
+          return {
+            question_id: q.id,
+            subject: q.subject,
+            topic: q.topic,
+            selected_option: selected !== undefined ? selected : null,
+            correct_option: q.correct_option,
+            is_correct: isCorrect,
+          };
+        });
+
+        const percentage = Math.round((correct / questions.length) * 100);
+        setStats({ correct, incorrect, unanswered, percentage });
+
+        // Save Results in Supabase via server-side secure API
+        const saveResults = async () => {
+          try {
+            const finalUserId = user_id || useQuizStore.getState().user_id || useQuizStore.getState().initUserId();
+            
+            const res = await fetch('/api/save-test-history', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: finalUserId,
+                testType: testType || 'topic-wise',
+                topics: selectedTopics,
+                score: correct,
+                totalQuestions: questions.length,
+                questionResults,
+              }),
+            });
+
+            if (!res.ok) {
+              const errData = await res.json();
+              throw new Error(errData.error || 'Failed to save test results');
+            }
+
+          } catch (err: any) {
+            console.error('Error inserting test history:', err);
+            setDbError('निकाल डेटाबेसमध्ये जतन करताना अडचण आली.');
+          } finally {
+            setSubmitting(false);
+          }
+        };
+
+        saveResults();
       }
     };
 
-    saveResults();
-  }, [isClient, questions, answers, user_id, testType, selectedTopics]);
+    loadData();
+  }, [isClient, testId, questions, answers, user_id, testType, selectedTopics, router]);
 
   const handleGoHome = () => {
     resetQuiz();
@@ -115,10 +225,24 @@ export default function ResultsPage() {
     router.push('/');
   };
 
-  if (!isClient || questions.length === 0) {
+  // Spinner loader states
+  if (!isClient || loadingPastTest) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-800 font-mukta">
-        <div className="animate-spin text-indigo-600 mb-4">
+        <div className="animate-spin text-indigo-650 mb-4">
+          <RefreshCw className="w-10 h-10" />
+        </div>
+        <p className="text-slate-500 text-sm">
+          {testId ? 'मागील चाचणीचा निकाल लोड होत आहे...' : 'निकाल लोड होत आहेत...'}
+        </p>
+      </div>
+    );
+  }
+
+  if (viewQuestions.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-800 font-mukta">
+        <div className="animate-spin text-indigo-650 mb-4">
           <RefreshCw className="w-10 h-10" />
         </div>
         <p className="text-slate-500 text-sm">निकाल लोड होत आहेत...</p>
@@ -133,7 +257,9 @@ export default function ResultsPage() {
       <header className="w-full max-w-2xl mx-auto py-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 sticky top-0 z-30">
         <h1 className="text-xl font-bold tracking-tight text-slate-850 flex items-center space-x-2">
           <Award className="w-5 h-5 text-indigo-600" />
-          <span>चाचणीचा निकाल / Results</span>
+          <span>
+            {testId ? 'चाचणी पुनरावलोकन / Test Review' : 'चाचणीचा निकाल / Results'}
+          </span>
         </h1>
         <button
           onClick={handleGoHome}
@@ -147,7 +273,7 @@ export default function ResultsPage() {
       {/* Main Container */}
       <main className="w-full max-w-2xl mx-auto mt-6 flex-1 space-y-6">
         
-        {/* Error notification if DB save fails */}
+        {/* Error notification if DB save/fetch fails */}
         {dbError && (
           <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start space-x-3 text-red-800">
             <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500 mt-0.5" />
@@ -157,7 +283,7 @@ export default function ResultsPage() {
 
         {/* Circular / Large Score display */}
         <div className="p-8 bg-white border border-slate-200 rounded-2xl shadow-sm text-center space-y-4">
-          <div className="w-28 h-28 mx-auto rounded-full bg-gradient-to-tr from-indigo-650 to-indigo-500 p-1 flex items-center justify-center shadow-md">
+          <div className="w-28 h-28 mx-auto rounded-full bg-gradient-to-tr from-indigo-650 to-indigo-50 p-1 flex items-center justify-center shadow-md">
             <div className="w-full h-full bg-white rounded-full flex flex-col items-center justify-center">
               <span className="text-3xl font-extrabold text-slate-800 font-sans">{stats.percentage}%</span>
               <span className="text-[10px] text-indigo-650 uppercase tracking-widest font-semibold mt-0.5">टक्केवारी</span>
@@ -190,16 +316,22 @@ export default function ResultsPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            onClick={handleRetry}
-            className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-sm sm:text-base hover:scale-[1.002]"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>पुन्हा प्रयत्न करा / Try Again</span>
-          </button>
+          {!testId && (
+            <button
+              onClick={handleRetry}
+              className="flex-1 py-3.5 bg-indigo-650 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-sm sm:text-base hover:scale-[1.002]"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>पुन्हा प्रयत्न करा / Try Again</span>
+            </button>
+          )}
           <button
             onClick={handleGoHome}
-            className="flex-1 py-3.5 bg-white hover:bg-slate-50 text-slate-705 border border-slate-200 font-bold rounded-xl transition-all flex items-center justify-center space-x-2 text-sm sm:text-base hover:scale-[1.002] shadow-sm"
+            className={`flex-1 py-3.5 font-bold rounded-xl transition-all flex items-center justify-center space-x-2 text-sm sm:text-base hover:scale-[1.002] shadow-sm ${
+              testId 
+                ? 'bg-indigo-600 hover:bg-indigo-700 text-white border border-transparent' 
+                : 'bg-white hover:bg-slate-50 text-slate-705 border border-slate-200'
+            }`}
           >
             <span>डॅशबोर्डवर जा</span>
             <ArrowRight className="w-4 h-4" />
@@ -208,11 +340,13 @@ export default function ResultsPage() {
 
         {/* Section: Question Review */}
         <div className="space-y-4 pt-4">
-          <h3 className="text-lg font-bold text-slate-805">प्रश्नोत्तर पुनरावलोकन / Review Questions ({questions.length})</h3>
+          <h3 className="text-lg font-bold text-slate-805">
+            प्रश्नोत्तर पुनरावलोकन / Review Questions ({viewQuestions.length})
+          </h3>
           
           <div className="space-y-4">
-            {questions.map((q, idx) => {
-              const selected = answers[q.id];
+            {viewQuestions.map((q, idx) => {
+              const selected = viewAnswers[q.id];
               const isCorrect = selected !== undefined && selected !== null && selected === q.correct_option;
               
               return (
@@ -237,7 +371,7 @@ export default function ResultsPage() {
                           <span>अनुत्तरित</span>
                         </span>
                       ) : isCorrect ? (
-                        <span className="text-xs text-emerald-650 font-semibold flex items-center space-x-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
+                        <span className="text-xs text-emerald-655 font-semibold flex items-center space-x-1 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
                           <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
                           <span>बरोबर</span>
                         </span>
@@ -269,7 +403,7 @@ export default function ResultsPage() {
                   {/* Chosen Option & Correct Option display */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
                     <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-center">
-                      <span className="text-slate-500 font-medium">आपला पर्याय:</span>
+                      <span className="text-slate-550 font-medium">आपला पर्याय:</span>
                       <span className={`font-semibold mt-0.5 ${
                         selected === undefined || selected === null 
                           ? 'text-yellow-600 italic' 
@@ -284,7 +418,7 @@ export default function ResultsPage() {
                     </div>
 
                     <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-center">
-                      <span className="text-slate-500 font-medium">योग्य पर्याय:</span>
+                      <span className="text-slate-550 font-medium">योग्य पर्याय:</span>
                       <span className="text-emerald-600 font-semibold mt-0.5">
                         {q.options[q.correct_option]}
                       </span>
