@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     // 1. Fetch test history count and scores (sorted by created_at ascending)
     const { data: testHistory, error: historyError } = await supabase
       .from('test_history')
-      .select('score, total_questions, question_results, created_at')
+      .select('id, score, total_questions, test_type, topics, question_results, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: true });
 
@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     let averageScore = 0;
     const scoreHistory: { testIndex: number; date: string; percentage: number }[] = [];
     const subjectStats: Record<string, { total: number; correct: number }> = {};
+    const questionStatus: Record<string, boolean> = {};
 
     if (totalTests > 0) {
       const totalPercentage = testHistory.reduce((sum, test, index) => {
@@ -42,11 +43,16 @@ export async function GET(req: NextRequest) {
           percentage: Math.round(pct),
         });
 
-        // Populate subject-wise stats for bar chart
+        // Populate subject-wise stats and track question latest status
         const results = Array.isArray(test.question_results) ? test.question_results : [];
         results.forEach((qRes: any) => {
+          const qId = qRes.question_id;
           const subj = qRes.subject || 'सामान्य';
           const isCorrect = qRes.is_correct === true;
+
+          if (qId) {
+            questionStatus[qId] = isCorrect;
+          }
 
           if (!subjectStats[subj]) {
             subjectStats[subj] = { total: 0, correct: 0 };
@@ -61,6 +67,21 @@ export async function GET(req: NextRequest) {
       }, 0);
       averageScore = Math.round(totalPercentage / totalTests);
     }
+
+    // List of past tests ordered newest first
+    const pastTests = testHistory ? [...testHistory].reverse().map(test => ({
+      id: test.id,
+      score: test.score,
+      total_questions: test.total_questions,
+      test_type: test.test_type,
+      topics: test.topics,
+      created_at: test.created_at,
+    })) : [];
+
+    // Collect question IDs solved in latest attempt
+    const solvedQuestionIds = Object.entries(questionStatus)
+      .filter(([_, isCorrect]) => isCorrect === true)
+      .map(([qId]) => qId);
 
     // Convert subjectStats to list
     const subjectProgress = Object.entries(subjectStats).map(([subject, stats]) => ({
@@ -114,6 +135,8 @@ export async function GET(req: NextRequest) {
       subjects: structuredSubjects,
       scoreHistory,
       subjectProgress,
+      solvedQuestionIds,
+      pastTests,
     });
   } catch (err: any) {
     console.error('User stats retrieval error:', err);

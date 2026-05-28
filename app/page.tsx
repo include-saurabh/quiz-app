@@ -6,7 +6,8 @@ import { supabase } from '@/lib/supabase';
 import { useQuizStore, Question } from '@/store/useQuizStore';
 import { 
   BookOpen, Award, BrainCircuit, Play, 
-  HelpCircle, AlertCircle, X, Layers, Settings, Sparkles, TrendingUp, BarChart
+  HelpCircle, AlertCircle, X, Layers, Settings, Sparkles, TrendingUp, BarChart,
+  Trash2, Calendar
 } from 'lucide-react';
 
 interface ScoreHistoryItem {
@@ -26,6 +27,15 @@ interface SubjectNode {
   topics: string[];
 }
 
+interface PastTestItem {
+  id: string;
+  score: number;
+  total_questions: number;
+  test_type: 'topic-wise' | 'mixed';
+  topics: string[];
+  created_at: string;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const initUserId = useQuizStore((state) => state.initUserId);
@@ -40,6 +50,8 @@ export default function Dashboard() {
     subjects: SubjectNode[];
     scoreHistory: ScoreHistoryItem[];
     subjectProgress: SubjectProgressItem[];
+    solvedQuestionIds: string[];
+    pastTests: PastTestItem[];
   }>({
     totalTests: 0,
     averageScore: 0,
@@ -47,6 +59,8 @@ export default function Dashboard() {
     subjects: [],
     scoreHistory: [],
     subjectProgress: [],
+    solvedQuestionIds: [],
+    pastTests: [],
   });
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -62,6 +76,54 @@ export default function Dashboard() {
   
   const [launchingTest, setLaunchingTest] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
+
+  const handleDeleteTest = async (testId: string) => {
+    if (!window.confirm('तुम्हाला खरोखर हा निकाल हटवायचा आहे का?')) return;
+    
+    setDeletingTestId(testId);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/delete-test-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user_id, testId }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete test');
+      }
+      
+      // Refresh stats
+      const statsRes = await fetch(`/api/user-stats?user_id=${user_id}`);
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStats(statsData);
+      }
+    } catch (err: any) {
+      console.error('Error deleting test:', err);
+      setErrorMsg(`निकाल हटवताना त्रुटी आली: ${err.message || 'Error'}`);
+    } finally {
+      setDeletingTestId(null);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      const d = new Date(dateString);
+      return d.toLocaleString('mr-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (e) {
+      return dateString;
+    }
+  };
 
   // 1. Initialize user ID and fetch stats
   useEffect(() => {
@@ -155,7 +217,7 @@ export default function Dashboard() {
       }
 
       // Format questions
-      let finalQuestions: Question[] = data.map(q => ({
+      const formattedQuestions: Question[] = data.map(q => ({
         id: q.id,
         subject: q.subject || 'सामान्य',
         topic: q.topic,
@@ -165,6 +227,15 @@ export default function Dashboard() {
         explanation: q.explanation,
         image_url: q.image_url,
       }));
+
+      // Filter out correctly solved questions (on latest attempt)
+      const solvedIds = stats.solvedQuestionIds || [];
+      let filteredQuestions = formattedQuestions.filter(q => !solvedIds.includes(q.id));
+
+      // Fallback if all questions are solved, use all formatted questions
+      if (filteredQuestions.length === 0) {
+        filteredQuestions = formattedQuestions;
+      }
 
       // Shuffle helper
       const shuffle = (array: any[]) => {
@@ -177,13 +248,14 @@ export default function Dashboard() {
         return array;
       };
 
+      let finalQuestions: Question[] = [];
       // Sample and Shuffle
       if (testMode === 'topic-wise') {
         const maxTopicQs = Number(process.env.NEXT_PUBLIC_MAX_TOPIC_QUESTIONS) || 30;
-        finalQuestions = shuffle(finalQuestions).slice(0, maxTopicQs);
+        finalQuestions = shuffle(filteredQuestions).slice(0, maxTopicQs);
       } else {
         const maxMixedQs = Number(process.env.NEXT_PUBLIC_MAX_MIXED_QUESTIONS) || 40;
-        finalQuestions = shuffle(finalQuestions).slice(0, maxMixedQs);
+        finalQuestions = shuffle(filteredQuestions).slice(0, maxMixedQs);
       }
 
       // 2. Initialize the Zustand quiz engine state
@@ -606,6 +678,83 @@ export default function Dashboard() {
             )}
           </button>
         </div>
+
+        {/* Past Tests History */}
+        {!loading && stats.pastTests && stats.pastTests.length > 0 && (
+          <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
+            <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
+              <Award className="w-5 h-5 text-indigo-650" />
+              <h2 className="text-lg font-bold text-slate-800">मागील चाचण्यांचा इतिहास / Past Tests ({stats.pastTests.length})</h2>
+            </div>
+            
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+              {stats.pastTests.map((test) => {
+                const percentage = test.total_questions > 0 ? Math.round((test.score / test.total_questions) * 100) : 0;
+                const isSuccess = percentage >= 40;
+                
+                return (
+                  <div 
+                    key={test.id} 
+                    className="p-4 bg-slate-50 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                  >
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                          test.test_type === 'topic-wise' 
+                            ? 'bg-indigo-50 border border-indigo-100 text-indigo-700' 
+                            : 'bg-amber-50 border border-amber-100 text-amber-700'
+                        }`}>
+                          {test.test_type === 'topic-wise' ? 'विषयनिहाय चाचणी' : 'मिश्रित चाचणी'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 flex items-center font-sans">
+                          <Calendar className="w-3 h-3 mr-1" />
+                          {formatDate(test.created_at)}
+                        </span>
+                      </div>
+                      
+                      <div className="text-sm font-bold text-slate-800 truncate">
+                        {test.topics && test.topics.length > 0 ? test.topics.join(', ') : 'सामान्य'}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
+                      {/* Score Badge */}
+                      <div className="flex items-center space-x-2">
+                        <div className="text-right">
+                          <div className="text-xs text-slate-400 font-medium">गुण (Score)</div>
+                          <div className="text-sm font-bold text-slate-800 font-sans">
+                            {test.score} / {test.total_questions}
+                          </div>
+                        </div>
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold font-sans shadow-sm ${
+                          isSuccess 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                            : 'bg-red-50 text-red-700 border border-red-200'
+                        }`}>
+                          {percentage}%
+                        </div>
+                      </div>
+                      
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => handleDeleteTest(test.id)}
+                        disabled={deletingTestId === test.id}
+                        className="p-2 text-slate-400 hover:text-red-650 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-100 transition-all disabled:opacity-50"
+                        title="चाचणी इतिहास हटवा"
+                      >
+                        {deletingTestId === test.id ? (
+                          <span className="animate-spin inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full"></span>
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
       </main>
     </div>
