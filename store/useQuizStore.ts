@@ -35,6 +35,8 @@ export interface QuizState {
   ) => void;
   selectOption: (questionId: string, optionIdx: number | null) => void;
   nextQuestion: () => boolean; // Returns true if advanced, false if quiz ended
+  prevQuestion: () => boolean; // Returns true if moved back, false if already at index 0
+  finishQuiz: () => void;
   tickTimer: () => void;
   setTimerActive: (active: boolean) => void;
   resetQuiz: () => void;
@@ -67,6 +69,8 @@ export const useQuizStore = create<QuizState>()(
       },
 
       startQuiz: (type, topics, questions, timePerQuestion = 60) => {
+        // Global timer: total questions * 60 seconds
+        const globalTimeLimit = questions.length * 60;
         set({
           isPlaying: true,
           testType: type,
@@ -74,8 +78,8 @@ export const useQuizStore = create<QuizState>()(
           questions,
           currentIndex: 0,
           answers: {},
-          timeLeft: timePerQuestion,
-          timePerQuestion,
+          timeLeft: globalTimeLimit,
+          timePerQuestion: globalTimeLimit,
           timerActive: true,
         });
         get().saveQuizBackupState();
@@ -90,45 +94,54 @@ export const useQuizStore = create<QuizState>()(
       },
 
       nextQuestion: () => {
-        const { currentIndex, questions, timePerQuestion } = get();
+        const { currentIndex, questions } = get();
         if (currentIndex < questions.length - 1) {
           set({
             currentIndex: currentIndex + 1,
-            timeLeft: timePerQuestion,
-            timerActive: true,
           });
           get().saveQuizBackupState();
           return true;
-        } else {
+        }
+        return false;
+      },
+
+      prevQuestion: () => {
+        const { currentIndex } = get();
+        if (currentIndex > 0) {
           set({
+            currentIndex: currentIndex - 1,
+          });
+          get().saveQuizBackupState();
+          return true;
+        }
+        return false;
+      },
+
+      finishQuiz: () => {
+        set({
+          isPlaying: false,
+          timerActive: false,
+        });
+        get().clearQuizBackupState();
+      },
+
+      tickTimer: () => {
+        const { timeLeft, timerActive, isPlaying } = get();
+        if (!isPlaying || !timerActive) return;
+
+        if (timeLeft <= 1) {
+          // Global timer expired! End the quiz
+          set({
+            timeLeft: 0,
             isPlaying: false,
             timerActive: false,
           });
           get().clearQuizBackupState();
-          return false;
-        }
-      },
-
-      tickTimer: () => {
-        const { timeLeft, timerActive, isPlaying, currentIndex, questions } = get();
-        if (!isPlaying || !timerActive) return;
-
-        if (timeLeft <= 1) {
-          // Timer expired!
-          const currentQuestion = questions[currentIndex];
-          
-          if (currentQuestion) {
-            // Auto-submit current question with null (treated as incorrect)
-            get().selectOption(currentQuestion.id, null);
-          }
-
-          // Advance to next or end quiz
-          const hasMore = get().nextQuestion();
           
           // Trigger a custom event for UI toast notification
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('quiz-timer-expired', {
-              detail: { isLast: !hasMore }
+              detail: { isLast: true }
             }));
           }
         } else {

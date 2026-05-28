@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuizStore, Question } from '@/store/useQuizStore';
 import { 
-  ArrowRight, Timer, AlertCircle, VolumeX, Eye, 
-  HelpCircle, ChevronRight, CornerDownRight, Home, RefreshCw 
+  ArrowRight, Timer, AlertCircle, Eye, 
+  HelpCircle, ChevronRight, ChevronLeft, Home, RefreshCw 
 } from 'lucide-react';
 
 export default function QuizPage() {
@@ -23,6 +23,8 @@ export default function QuizPage() {
   const tickTimer = useQuizStore((state) => state.tickTimer);
   const selectOption = useQuizStore((state) => state.selectOption);
   const nextQuestion = useQuizStore((state) => state.nextQuestion);
+  const prevQuestion = useQuizStore((state) => state.prevQuestion);
+  const finishQuiz = useQuizStore((state) => state.finishQuiz);
   const setTimerActive = useQuizStore((state) => state.setTimerActive);
   const loadQuizBackupState = useQuizStore((state) => state.loadQuizBackupState);
   const resetQuiz = useQuizStore((state) => state.resetQuiz);
@@ -34,7 +36,6 @@ export default function QuizPage() {
 
   const currentQuestion = questions[currentIndex] as Question | undefined;
   const selectedAnswer = currentQuestion ? answers[currentQuestion.id] : undefined;
-  const isAnswered = selectedAnswer !== undefined;
 
   // 1. Safe Client hydration checking
   useEffect(() => {
@@ -84,15 +85,11 @@ export default function QuizPage() {
   // 5. Timer Expiry toast handler
   useEffect(() => {
     const handleTimerExpired = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      const isLast = customEvent.detail?.isLast;
-
       setToastMessage('वेळ संपली!');
-      setTimeout(() => setToastMessage(''), 3000);
-
-      if (isLast) {
+      setTimeout(() => {
+        setToastMessage('');
         router.push('/results');
-      }
+      }, 2000);
     };
 
     window.addEventListener('quiz-timer-expired', handleTimerExpired);
@@ -103,17 +100,22 @@ export default function QuizPage() {
 
   // Handle Option Click
   const handleOptionClick = (optionIdx: number) => {
-    if (isAnswered || !currentQuestion) return;
-    setTimerActive(false);
+    if (!currentQuestion) return;
     selectOption(currentQuestion.id, optionIdx);
   };
 
-  // Handle Next Click
+  // Handle Navigation clicks
   const handleNextClick = () => {
-    const hasMore = nextQuestion();
-    if (!hasMore) {
-      router.push('/results');
-    }
+    nextQuestion();
+  };
+
+  const handlePrevClick = () => {
+    prevQuestion();
+  };
+
+  const handleFinishClick = () => {
+    finishQuiz();
+    router.push('/results');
   };
 
   const handleQuitQuiz = () => {
@@ -121,6 +123,12 @@ export default function QuizPage() {
       resetQuiz();
       router.push('/');
     }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   if (!isClient || !currentQuestion) {
@@ -135,7 +143,7 @@ export default function QuizPage() {
   }
 
   // Calculate timer circle path dash offset for animations
-  const progressPercent = (timeLeft / timePerQuestion) * 100;
+  const progressPercent = timePerQuestion > 0 ? (timeLeft / timePerQuestion) * 100 : 0;
   const radius = 24;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (progressPercent / 100) * circumference;
@@ -154,7 +162,7 @@ export default function QuizPage() {
         </button>
 
         <div className="text-center">
-          <span className="text-slate-500 text-xs uppercase tracking-wider font-semibold">प्रगती / Progress</span>
+          <span className="text-slate-550 text-xs uppercase tracking-wider font-semibold">प्रगती / Progress</span>
           <div className="text-base font-extrabold text-slate-800 font-sans mt-0.5">
             {currentIndex + 1} / {questions.length}
           </div>
@@ -176,7 +184,7 @@ export default function QuizPage() {
               cy="24"
               r={radius}
               className={`transition-all duration-1000 ${
-                timeLeft <= 10 
+                timeLeft <= 30 
                   ? 'stroke-red-500 drop-shadow-[0_0_4px_rgba(239,68,68,0.3)]' 
                   : 'stroke-indigo-600'
               }`}
@@ -187,8 +195,8 @@ export default function QuizPage() {
               strokeLinecap="round"
             />
           </svg>
-          <span className={`absolute text-sm font-bold font-sans ${timeLeft <= 10 ? 'text-red-500 font-extrabold' : 'text-slate-800'}`}>
-            {timeLeft}
+          <span className={`absolute text-[10px] sm:text-xs font-bold font-sans ${timeLeft <= 30 ? 'text-red-500 font-extrabold' : 'text-slate-800'}`}>
+            {formatTime(timeLeft)}
           </span>
         </div>
       </header>
@@ -198,7 +206,7 @@ export default function QuizPage() {
         
         {/* Toast Notification */}
         {toastMessage && (
-          <div className="fixed top-20 left-1/2 transform -translate-x-1/2 px-5 py-3 bg-red-600 border border-red-500 text-white rounded-xl shadow-lg flex items-center space-x-2 z-50 animate-bounce">
+          <div className="fixed top-20 left-1/2 transform -translate-x-1/2 px-5 py-3 bg-red-655 border border-red-500 text-white rounded-xl shadow-lg flex items-center space-x-2 z-50 animate-bounce">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
             <span className="font-bold text-sm tracking-wide">{toastMessage}</span>
           </div>
@@ -206,11 +214,11 @@ export default function QuizPage() {
 
         {/* Card: Question & Attached Image */}
         <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4">
-          <span className="inline-block text-xs font-semibold px-2 py-0.5 bg-indigo-50 text-indigo-650 rounded-md border border-indigo-100">
+          <span className="inline-block text-xs font-semibold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md border border-indigo-100">
             {currentQuestion.subject} • {currentQuestion.topic}
           </span>
           <h2 className="text-lg sm:text-xl font-bold text-slate-800 leading-relaxed">
-            {currentQuestion.question_text}
+            <span className="font-sans">{currentIndex + 1}.</span> {currentQuestion.question_text}
           </h2>
 
           {/* Attached Math Figure / Image */}
@@ -222,7 +230,7 @@ export default function QuizPage() {
                 className="max-h-60 object-contain rounded-lg transition-transform group-hover:scale-[1.01]"
               />
               <div className="absolute top-2 right-2 p-1 bg-white rounded-md border border-slate-200 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm">
-                <Eye className="w-4 h-4 text-indigo-600" />
+                <Eye className="w-4 h-4 text-indigo-650" />
               </div>
             </div>
           )}
@@ -231,41 +239,26 @@ export default function QuizPage() {
         {/* List: 4 Options */}
         <div className="space-y-3">
           {currentQuestion.options.map((option, idx) => {
-            const isCorrect = idx === currentQuestion.correct_option;
-            const isSelected = selectedAnswer !== null && idx === selectedAnswer;
+            const isSelected = selectedAnswer !== undefined && selectedAnswer !== null && idx === selectedAnswer;
             
-            // Visual styles
-            let optionStyles = 'border-slate-200 bg-white text-slate-700 hover:border-slate-350 hover:bg-slate-50';
-            let iconText = '';
-            let indicatorBg = 'border-slate-250 text-slate-500';
+            // Visual styles - highlight selected options
+            let optionStyles = 'border-slate-200 bg-white text-slate-705 hover:border-slate-350 hover:bg-slate-50';
+            let indicatorBg = 'border-slate-250 text-slate-500 bg-slate-50';
 
-            if (isAnswered) {
-              if (isCorrect) {
-                optionStyles = 'border-emerald-500 bg-emerald-50 text-emerald-900';
-                indicatorBg = 'bg-emerald-600 border-emerald-500 text-white';
-                iconText = '✓';
-              } else if (isSelected) {
-                optionStyles = 'border-red-500 bg-red-50 text-red-900';
-                indicatorBg = 'bg-red-650 border-red-500 text-white';
-                iconText = '×';
-              } else {
-                optionStyles = 'border-slate-100 bg-slate-50/50 text-slate-400 opacity-60';
-                indicatorBg = 'border-slate-150 text-slate-350';
-              }
+            if (isSelected) {
+              optionStyles = 'border-indigo-600 bg-indigo-50/70 text-indigo-900 ring-2 ring-indigo-550/15';
+              indicatorBg = 'bg-indigo-600 border-indigo-600 text-white';
             }
 
             return (
               <button
                 key={idx}
-                disabled={isAnswered}
                 onClick={() => handleOptionClick(idx)}
-                className={`w-full p-4 border rounded-xl flex items-center justify-between text-left text-sm sm:text-base font-semibold transition-all relative ${optionStyles} ${
-                  !isAnswered ? 'cursor-pointer hover:scale-[1.002] shadow-sm' : 'cursor-default'
-                }`}
+                className={`w-full p-4 border rounded-xl flex items-center justify-between text-left text-sm sm:text-base font-semibold transition-all relative ${optionStyles} cursor-pointer hover:scale-[1.002] shadow-sm`}
               >
                 <div className="flex items-center space-x-3.5 pr-4">
                   <span className={`w-6 h-6 rounded-lg border text-xs font-bold font-sans flex items-center justify-center shrink-0 ${indicatorBg}`}>
-                    {iconText || String.fromCharCode(65 + idx)}
+                    {String.fromCharCode(65 + idx)}
                   </span>
                   <span>{option}</span>
                 </div>
@@ -274,29 +267,35 @@ export default function QuizPage() {
           })}
         </div>
 
-        {/* Solution & Explanation reveals below options */}
-        {isAnswered && (
-          <div className="p-5 bg-indigo-50 border border-indigo-100 rounded-2xl space-y-3 animate-fade-in shadow-sm">
-            <div className="flex items-center space-x-2 text-indigo-700">
-              <CornerDownRight className="w-5 h-5" />
-              <h3 className="font-bold text-sm sm:text-base">स्पष्टीकरण (Solution & Explanation):</h3>
-            </div>
-            <p className="text-slate-650 text-sm leading-relaxed pl-7">
-              {currentQuestion.explanation}
-            </p>
-          </div>
-        )}
-
-        {/* Action button "पुढे" (Next) */}
-        {isAnswered && (
-          <button
-            onClick={handleNextClick}
-            className="w-full py-4 bg-indigo-600 hover:bg-indigo-750 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-base hover:scale-[1.002]"
-          >
-            <span>{currentIndex === questions.length - 1 ? 'निकाल पहा' : 'पुढे'}</span>
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        )}
+        {/* Navigation Buttons */}
+        <div className="flex gap-4 pt-2">
+          {currentIndex > 0 && (
+            <button
+              onClick={handlePrevClick}
+              className="flex-1 py-3.5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 shadow-sm transition-all flex items-center justify-center space-x-1"
+            >
+              <ChevronLeft className="w-4 h-4 mr-1" />
+              <span>मागे</span>
+            </button>
+          )}
+          {currentIndex < questions.length - 1 ? (
+            <button
+              onClick={handleNextClick}
+              className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-1"
+            >
+              <span>पुढे</span>
+              <ChevronRight className="w-4 h-4 ml-1" />
+            </button>
+          ) : (
+            <button
+              onClick={handleFinishClick}
+              className="flex-1 py-3.5 bg-emerald-650 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-1"
+            >
+              <span>चाचणी पूर्ण करा</span>
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </button>
+          )}
+        </div>
 
       </main>
     </div>

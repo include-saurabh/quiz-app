@@ -36,6 +36,14 @@ interface PastTestItem {
   created_at: string;
 }
 
+interface RevisionTopicItem {
+  topic: string;
+  subject: string;
+  percentage: number;
+  total: number;
+  incorrect: number;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const initUserId = useQuizStore((state) => state.initUserId);
@@ -52,6 +60,7 @@ export default function Dashboard() {
     subjectProgress: SubjectProgressItem[];
     solvedQuestionIds: string[];
     pastTests: PastTestItem[];
+    needsRevision: RevisionTopicItem[];
   }>({
     totalTests: 0,
     averageScore: 0,
@@ -61,6 +70,7 @@ export default function Dashboard() {
     subjectProgress: [],
     solvedQuestionIds: [],
     pastTests: [],
+    needsRevision: [],
   });
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -249,12 +259,12 @@ export default function Dashboard() {
       };
 
       let finalQuestions: Question[] = [];
-      // Sample and Shuffle
+      // Sample and Shuffle (capped at 20 questions maximum)
       if (testMode === 'topic-wise') {
-        const maxTopicQs = Number(process.env.NEXT_PUBLIC_MAX_TOPIC_QUESTIONS) || 30;
+        const maxTopicQs = 20;
         finalQuestions = shuffle(filteredQuestions).slice(0, maxTopicQs);
       } else {
-        const maxMixedQs = Number(process.env.NEXT_PUBLIC_MAX_MIXED_QUESTIONS) || 40;
+        const maxMixedQs = 20;
         finalQuestions = shuffle(filteredQuestions).slice(0, maxMixedQs);
       }
 
@@ -514,6 +524,31 @@ export default function Dashboard() {
           )}
         </div>
 
+        {/* Topics Needing Revision Section */}
+        {!loading && stats.needsRevision && stats.needsRevision.length > 0 && (
+          <div className="p-6 bg-white border border-rose-100 rounded-2xl shadow-sm space-y-4">
+            <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
+              <AlertCircle className="w-5 h-5 text-rose-500 animate-pulse" />
+              <h2 className="text-lg font-bold text-slate-800">पुनरावलोकन आवश्यक असलेले घटक (Revision Needed)</h2>
+            </div>
+            <p className="text-xs text-slate-550 leading-relaxed">खालील घटकांमध्ये तुमची अचूकता ७०% पेक्षा कमी आहे. चांगल्या गुणांसाठी या घटकांचा अधिक सराव करा:</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {stats.needsRevision.slice(0, 6).map((item, idx) => (
+                <div key={idx} className="p-4 bg-rose-50/30 hover:bg-rose-50/60 border border-rose-100/60 rounded-xl transition-all flex justify-between items-center group">
+                  <div className="space-y-1 pr-2 min-w-0">
+                    <span className="text-[10px] font-semibold text-rose-550 block truncate">{item.subject}</span>
+                    <span className="text-sm font-bold text-slate-800 block truncate group-hover:text-rose-900">{item.topic}</span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-xs font-bold text-rose-600 block font-sans">{item.percentage}% अचूकता</span>
+                    <span className="text-[10px] text-slate-400 block font-sans">{item.incorrect} चुकीचे प्रश्न</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Error notification boundary */}
         {errorMsg && (
           <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start space-x-3 text-red-800">
@@ -607,7 +642,7 @@ export default function Dashboard() {
                       }
                     </select>
                     <p className="text-xs text-slate-400 italic mt-1">
-                      * महत्तम प्रश्न मर्यादा: {process.env.NEXT_PUBLIC_MAX_TOPIC_QUESTIONS || 30} प्रश्न.
+                      * महत्तम प्रश्न मर्यादा: २० प्रश्न.
                     </p>
                   </div>
                 </div>
@@ -652,7 +687,7 @@ export default function Dashboard() {
                     ))}
                   </div>
                   <p className="text-xs text-slate-400 italic mt-1 font-sans">
-                    * महत्तम प्रश्न मर्यादा: {process.env.NEXT_PUBLIC_MAX_MIXED_QUESTIONS || 40} प्रश्न (यादृच्छिकपणे निवडले जातील).
+                    * महत्तम प्रश्न मर्यादा: २० प्रश्न (यादृच्छिकपणे निवडले जातील).
                   </p>
                 </div>
               )}

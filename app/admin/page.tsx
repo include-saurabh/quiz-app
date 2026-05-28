@@ -39,7 +39,7 @@ export default function AdminPage() {
   const [checkingAuth, setCheckingAuth] = useState<boolean>(true);
 
   // Tabs state
-  const [activeTab, setActiveTab] = useState<'upload' | 'manager'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'manager' | 'history'>('upload');
 
   // Status message states
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -57,6 +57,11 @@ export default function AdminPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedManagerSubject, setSelectedManagerSubject] = useState<string>('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Past Tests Manager States
+  const [adminTests, setAdminTests] = useState<any[]>([]);
+  const [loadingTests, setLoadingTests] = useState<boolean>(false);
+  const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
 
   // 1. Check authentication on mount
   useEffect(() => {
@@ -159,6 +164,37 @@ export default function AdminPage() {
     }
   }, [activeTab, isAuthenticated]);
 
+  const fetchAllTestHistory = async () => {
+    setLoadingTests(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/admin/test-history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': passcode,
+        },
+        body: JSON.stringify({ passcode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to fetch test history.');
+      }
+      setAdminTests(data.testHistory || []);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(`चाचणी इतिहास लोड करताना त्रुटी आली: ${err.message || 'Error occurred.'}`);
+    } finally {
+      setLoadingTests(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated && activeTab === 'history') {
+      fetchAllTestHistory();
+    }
+  }, [activeTab, isAuthenticated]);
+
   // 5. Deleting a question from Manager
   const handleDeleteQuestion = async (questionId: string) => {
     if (!confirm('Are you sure you want to delete this question? This action is permanent.')) return;
@@ -194,6 +230,42 @@ export default function AdminPage() {
       setErrorMsg(`Deletion error: ${err.message || 'Error occurred.'}`);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleDeleteTestByAdmin = async (userId: string, testId: string) => {
+    if (!confirm('Are you sure you want to delete this test record? This action is permanent.')) return;
+
+    setDeletingTestId(testId);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const res = await fetch('/api/delete-test-history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': passcode,
+        },
+        body: JSON.stringify({
+          userId,
+          testId,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete test history.');
+      }
+
+      setSuccessMsg('Test history record deleted successfully.');
+      setAdminTests(prev => prev.filter(t => t.id !== testId));
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(`Deletion error: ${err.message || 'Error occurred.'}`);
+    } finally {
+      setDeletingTestId(null);
     }
   };
 
@@ -505,6 +577,16 @@ export default function AdminPage() {
             }`}
           >
             Question Bank Manager / प्रश्न व्यवस्थापन
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-5 py-2.5 font-bold text-sm border-b-2 transition-all ${
+              activeTab === 'history'
+                ? 'border-indigo-650 text-indigo-700'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            Past Tests Manager / चाचणी इतिहास
           </button>
         </div>
 
@@ -915,6 +997,110 @@ export default function AdminPage() {
 
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: PAST TESTS HISTORY MANAGER */}
+        {activeTab === 'history' && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6 animate-fade-in">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-xl font-bold">Past Tests History Manager</h2>
+                <p className="text-xs text-slate-400 mt-0.5">View and delete completed test history records across all users</p>
+              </div>
+              <button
+                onClick={fetchAllTestHistory}
+                disabled={loadingTests}
+                className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg border border-slate-200 text-xs font-semibold flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {loadingTests ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                <RefreshCw className="w-8 h-8 animate-spin mb-2" />
+                <span className="text-sm">Loading test history...</span>
+              </div>
+            ) : adminTests.length === 0 ? (
+              <div className="text-center py-12 bg-slate-50 border border-slate-200 border-dashed rounded-xl">
+                <HelpCircle className="w-8 h-8 text-slate-350 mx-auto mb-2" />
+                <p className="text-slate-500 font-semibold text-sm">No test history records found.</p>
+                <p className="text-slate-400 text-xs mt-1">Completed tests taken by students will appear here.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1 font-mukta text-slate-800">
+                {adminTests.map((test) => {
+                  const percentage = test.total_questions > 0 ? Math.round((test.score / test.total_questions) * 100) : 0;
+                  const isSuccess = percentage >= 40;
+                  
+                  return (
+                    <div 
+                      key={test.id} 
+                      className="p-4 bg-slate-50 hover:bg-slate-100/70 border border-slate-250 rounded-xl transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                            test.test_type === 'topic-wise' 
+                              ? 'bg-indigo-50 border border-indigo-100 text-indigo-700' 
+                              : 'bg-amber-50 border border-amber-100 text-amber-700'
+                          }`}>
+                            {test.test_type === 'topic-wise' ? 'विषयनिहाय चाचणी' : 'मिश्रित चाचणी'}
+                          </span>
+                          <span className="text-[10px] text-slate-450 font-sans">
+                            Date: {new Date(test.created_at).toLocaleString('en-US', { hour12: true })}
+                          </span>
+                        </div>
+                        <div className="text-sm font-bold text-slate-800 truncate">
+                          Topics: {test.topics && test.topics.length > 0 ? test.topics.join(', ') : 'सामान्य'}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-sans select-all">
+                          User ID: {test.user_id}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between md:justify-end gap-6 border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-200">
+                        <div className="flex items-center space-x-2">
+                          <div className="text-right">
+                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Score</div>
+                            <div className="text-sm font-bold text-slate-800 font-sans">
+                              {test.score} / {test.total_questions}
+                            </div>
+                          </div>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold font-sans shadow-sm ${
+                            isSuccess 
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                              : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}>
+                            {percentage}%
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleDeleteTestByAdmin(test.user_id, test.id)}
+                          disabled={deletingTestId === test.id}
+                          className="px-3.5 py-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-655 hover:text-red-750 font-bold rounded-lg text-xs transition-colors shrink-0 flex items-center space-x-1.5 disabled:opacity-50"
+                        >
+                          {deletingTestId === test.id ? (
+                            <>
+                              <span className="animate-spin inline-block w-3 h-3 border border-red-500 border-t-transparent rounded-full"></span>
+                              <span>Deleting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

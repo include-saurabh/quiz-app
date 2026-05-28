@@ -71,26 +71,28 @@ export default function ResultsPage() {
     const percentage = Math.round((correct / questions.length) * 100);
     setStats({ correct, incorrect, unanswered, percentage });
 
-    // 2. Insert into Supabase test_history
+    // 2. Insert into Supabase test_history via server-side API
     const saveResults = async () => {
       try {
-        const { error } = await supabase.from('test_history').insert({
-          user_id: user_id || crypto.randomUUID(),
-          test_type: testType || 'topic-wise',
-          topics: selectedTopics,
-          score: correct,
-          total_questions: questions.length,
-          question_results: questionResults,
-        });
-
-        if (error) throw error;
-
-        // 3. Asynchronously trigger AI weak topics regeneration
-        fetch('/api/insights', {
+        const finalUserId = user_id || useQuizStore.getState().user_id || useQuizStore.getState().initUserId();
+        
+        const res = await fetch('/api/save-test-history', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user_id }),
-        }).catch(err => console.error('Failed to trigger async insights:', err));
+          body: JSON.stringify({
+            userId: finalUserId,
+            testType: testType || 'topic-wise',
+            topics: selectedTopics,
+            score: correct,
+            totalQuestions: questions.length,
+            questionResults,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to save test results');
+        }
 
       } catch (err: any) {
         console.error('Error inserting test history:', err);

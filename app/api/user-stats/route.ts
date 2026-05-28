@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     let averageScore = 0;
     const scoreHistory: { testIndex: number; date: string; percentage: number }[] = [];
     const subjectStats: Record<string, { total: number; correct: number }> = {};
+    const topicStats: Record<string, { total: number; correct: number; subject: string }> = {};
     const questionStatus: Record<string, boolean> = {};
 
     if (totalTests > 0) {
@@ -48,6 +49,7 @@ export async function GET(req: NextRequest) {
         results.forEach((qRes: any) => {
           const qId = qRes.question_id;
           const subj = qRes.subject || 'सामान्य';
+          const topic = qRes.topic || 'सामान्य';
           const isCorrect = qRes.is_correct === true;
 
           if (qId) {
@@ -60,6 +62,14 @@ export async function GET(req: NextRequest) {
           subjectStats[subj].total += 1;
           if (isCorrect) {
             subjectStats[subj].correct += 1;
+          }
+
+          if (!topicStats[topic]) {
+            topicStats[topic] = { total: 0, correct: 0, subject: subj };
+          }
+          topicStats[topic].total += 1;
+          if (isCorrect) {
+            topicStats[topic].correct += 1;
           }
         });
 
@@ -77,6 +87,21 @@ export async function GET(req: NextRequest) {
       topics: test.topics,
       created_at: test.created_at,
     })) : [];
+
+    // Filter topics that have < 70% accuracy and need revision, sorted by lowest accuracy first
+    const needsRevision = Object.entries(topicStats)
+      .map(([topic, stats]) => {
+        const percentage = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
+        return {
+          topic,
+          subject: stats.subject,
+          percentage,
+          total: stats.total,
+          incorrect: stats.total - stats.correct
+        };
+      })
+      .filter(t => t.percentage < 70)
+      .sort((a, b) => a.percentage - b.percentage);
 
     // Collect question IDs solved in latest attempt
     const solvedQuestionIds = Object.entries(questionStatus)
@@ -137,6 +162,7 @@ export async function GET(req: NextRequest) {
       subjectProgress,
       solvedQuestionIds,
       pastTests,
+      needsRevision,
     });
   } catch (err: any) {
     console.error('User stats retrieval error:', err);
