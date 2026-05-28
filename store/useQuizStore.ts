@@ -130,13 +130,11 @@ export const useQuizStore = create<QuizState>()(
         if (!isPlaying || !timerActive) return;
 
         if (timeLeft <= 1) {
-          // Global timer expired! End the quiz
+          // Global timer expired! Stop the timer, but keep isPlaying active
           set({
             timeLeft: 0,
-            isPlaying: false,
             timerActive: false,
           });
-          get().clearQuizBackupState();
           
           // Trigger a custom event for UI toast notification
           if (typeof window !== 'undefined') {

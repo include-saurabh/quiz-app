@@ -114,7 +114,6 @@ export default function QuizPage() {
   };
 
   const handleFinishClick = () => {
-    finishQuiz();
     router.push('/results');
   };
 

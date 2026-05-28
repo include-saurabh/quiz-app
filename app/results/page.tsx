@@ -292,12 +292,18 @@ export default function ResultsPage() {
                   </div>
 
                   {/* Solution block */}
-                  <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl space-y-1.5 text-xs sm:text-sm">
-                    <div className="font-bold text-indigo-750 flex items-center space-x-1">
+                  <div className={`p-4 rounded-xl space-y-1.5 text-xs sm:text-sm border ${
+                    isCorrect 
+                      ? 'bg-indigo-50/50 border-indigo-100 text-slate-700' 
+                      : 'bg-rose-50/70 border-rose-100 text-slate-700'
+                  }`}>
+                    <div className={`font-bold flex items-center space-x-1 ${isCorrect ? 'text-indigo-750' : 'text-rose-750'}`}>
                       <ChevronRight className="w-4 h-4" />
-                      <span>स्पष्टीकरण:</span>
+                      <span>{isCorrect ? 'स्पष्टीकरण (Explanation):' : 'स्पष्टीकरण व विश्लेषण (Incorrect - Explanation):'}</span>
                     </div>
-                    <p className="text-slate-650 leading-relaxed pl-5">{q.explanation}</p>
+                    <p className="text-slate-655 leading-relaxed pl-5">
+                      {q.explanation ? q.explanation : 'या प्रश्नाचे स्पष्टीकरण उपलब्ध नाही.'}
+                    </p>
                   </div>
 
                 </div>
