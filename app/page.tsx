@@ -6,8 +6,25 @@ import { supabase } from '@/lib/supabase';
 import { useQuizStore, Question } from '@/store/useQuizStore';
 import { 
   BookOpen, Award, BrainCircuit, Play, 
-  HelpCircle, AlertCircle, X, Layers, Settings, Sparkles 
+  HelpCircle, AlertCircle, X, Layers, Settings, Sparkles, TrendingUp, BarChart
 } from 'lucide-react';
+
+interface ScoreHistoryItem {
+  testIndex: number;
+  date: string;
+  percentage: number;
+}
+
+interface SubjectProgressItem {
+  subject: string;
+  percentage: number;
+  total: number;
+}
+
+interface SubjectNode {
+  subject: string;
+  topics: string[];
+}
 
 export default function Dashboard() {
   const router = useRouter();
@@ -20,12 +37,16 @@ export default function Dashboard() {
     totalTests: number;
     averageScore: number;
     insights: string | null;
-    topics: string[];
+    subjects: SubjectNode[];
+    scoreHistory: ScoreHistoryItem[];
+    subjectProgress: SubjectProgressItem[];
   }>({
     totalTests: 0,
     averageScore: 0,
     insights: null,
-    topics: [],
+    subjects: [],
+    scoreHistory: [],
+    subjectProgress: [],
   });
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -33,8 +54,12 @@ export default function Dashboard() {
 
   // Test configuration state
   const [testMode, setTestMode] = useState<'topic-wise' | 'mixed'>('topic-wise');
+  
+  // Selection States
+  const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [selectedMixedTopics, setSelectedMixedTopics] = useState<string[]>([]);
+  
   const [launchingTest, setLaunchingTest] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
@@ -55,9 +80,12 @@ export default function Dashboard() {
         const data = await res.json();
         setStats(data);
         
-        // Auto-select first topic
-        if (data.topics && data.topics.length > 0) {
-          setSelectedTopic(data.topics[0]);
+        // Auto-select first subject and its first topic
+        if (data.subjects && data.subjects.length > 0) {
+          setSelectedSubject(data.subjects[0].subject);
+          if (data.subjects[0].topics && data.subjects[0].topics.length > 0) {
+            setSelectedTopic(data.subjects[0].topics[0]);
+          }
         }
       } catch (err) {
         console.error('Error loading stats:', err);
@@ -68,6 +96,18 @@ export default function Dashboard() {
 
     fetchStats();
   }, [initUserId]);
+
+  // Update selected topic when subject changes in Topic-wise mode
+  useEffect(() => {
+    if (selectedSubject && stats.subjects.length > 0) {
+      const subNode = stats.subjects.find(s => s.subject === selectedSubject);
+      if (subNode && subNode.topics && subNode.topics.length > 0) {
+        setSelectedTopic(subNode.topics[0]);
+      } else {
+        setSelectedTopic('');
+      }
+    }
+  }, [selectedSubject, stats.subjects]);
 
   const dismissNotice = () => {
     localStorage.setItem('device_notice_dismissed', 'true');
@@ -93,7 +133,7 @@ export default function Dashboard() {
       : selectedMixedTopics;
 
     if (topicsToFetch.length === 0 || !topicsToFetch[0]) {
-      setErrorMsg('कृपया कमीत कमी एक विषय तरी निवडा.');
+      setErrorMsg('कृपया कमीत कमी एक घटक तरी निवडा.');
       return;
     }
 
@@ -101,13 +141,15 @@ export default function Dashboard() {
 
     try {
       // 1. Fetch questions for the selected topics
-      let query = supabase.from('questions').select('*').in('topic', topicsToFetch);
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .in('topic', topicsToFetch);
       
-      const { data, error } = await query;
       if (error) throw error;
 
       if (!data || data.length === 0) {
-        setErrorMsg('निवडलेल्या विषयांमध्ये सध्या कोणतेही प्रश्न उपलब्ध नाहीत. कृपया दुसरा विषय निवडा.');
+        setErrorMsg('निवडलेल्या घटकांमध्ये सध्या कोणतेही प्रश्न उपलब्ध नाहीत. कृपया दुसरा घटक निवडा.');
         setLaunchingTest(false);
         return;
       }
@@ -115,6 +157,7 @@ export default function Dashboard() {
       // Format questions
       let finalQuestions: Question[] = data.map(q => ({
         id: q.id,
+        subject: q.subject || 'सामान्य',
         topic: q.topic,
         question_text: q.question_text,
         options: Array.isArray(q.options) ? q.options : [],
@@ -156,6 +199,119 @@ export default function Dashboard() {
     }
   };
 
+  // Helper: Draw pure SVG Line Chart for user scores over time
+  const renderLineChart = () => {
+    const data = stats.scoreHistory;
+    if (!data || data.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-48 bg-slate-50 border border-slate-200 rounded-xl border-dashed">
+          <TrendingUp className="w-8 h-8 text-slate-400 mb-1" />
+          <p className="text-xs text-slate-500 font-semibold">अजून कोणतीही चाचणी घेतलेली नाही.</p>
+        </div>
+      );
+    }
+
+    const width = 500;
+    const height = 180;
+    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // Calculate Coordinates
+    const points = data.map((d, index) => {
+      const x = padding.left + (data.length === 1 ? chartWidth / 2 : (index / (data.length - 1)) * chartWidth);
+      const y = padding.top + chartHeight - (d.percentage / 100) * chartHeight;
+      return { x, y, value: d.percentage, label: d.date };
+    });
+
+    // Create Path SVG string
+    let pathD = '';
+    if (points.length > 0) {
+      pathD = `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ');
+    }
+
+    // Gridlines at 0%, 50%, 100%
+    const gridY = [0, 50, 100].map(val => ({
+      y: padding.top + chartHeight - (val / 100) * chartHeight,
+      label: `${val}%`
+    }));
+
+    return (
+      <div className="w-full overflow-x-auto bg-white p-4 border border-slate-100 rounded-2xl shadow-sm">
+        <div className="flex items-center space-x-1.5 mb-3 text-indigo-650">
+          <TrendingUp className="w-4 h-4" />
+          <span className="text-xs font-bold uppercase tracking-wider">गुण प्रगती आलेख (Progress History)</span>
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[380px] h-40 overflow-visible font-sans">
+          {/* Grid lines */}
+          {gridY.map((g, idx) => (
+            <g key={idx}>
+              <line 
+                x1={padding.left} 
+                y1={g.y} 
+                x2={width - padding.right} 
+                y2={g.y} 
+                className="stroke-slate-100" 
+                strokeWidth="1"
+                strokeDasharray="4"
+              />
+              <text 
+                x={padding.left - 10} 
+                y={g.y + 4} 
+                textAnchor="end" 
+                className="text-[10px] fill-slate-400 font-semibold"
+              >
+                {g.label}
+              </text>
+            </g>
+          ))}
+
+          {/* Line Path */}
+          {points.length > 1 && (
+            <path
+              d={pathD}
+              fill="none"
+              className="stroke-indigo-600"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+
+          {/* Dots on points */}
+          {points.map((p, idx) => (
+            <g key={idx} className="group cursor-pointer">
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="4.5"
+                className="fill-indigo-600 stroke-white"
+                strokeWidth="2"
+              />
+              <text
+                x={p.x}
+                y={p.y - 10}
+                textAnchor="middle"
+                className="text-[9px] font-bold fill-indigo-750 bg-white"
+              >
+                {p.value}%
+              </text>
+              <text
+                x={p.x}
+                y={height - 10}
+                textAnchor="middle"
+                className="text-[9px] fill-slate-405 font-medium"
+              >
+                {p.label}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen flex flex-col font-mukta text-slate-900 bg-slate-50 pb-12">
       
@@ -166,15 +322,15 @@ export default function Dashboard() {
             <span className="p-2 bg-indigo-50 rounded-xl text-indigo-650 border border-indigo-100">
               <BrainCircuit className="w-6 h-6" />
             </span>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-800">मराठी AI क्विझ</h1>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-800">MAHATET</h1>
           </div>
           
           <a 
             href="/admin"
-            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-650 rounded-xl border border-slate-200 text-xs font-semibold transition-all flex items-center space-x-1"
+            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-655 rounded-xl border border-slate-200 text-xs font-semibold transition-all flex items-center space-x-1"
           >
             <Settings className="w-3.5 h-3.5" />
-            <span>अॅडमीन</span>
+            <span>Admin</span>
           </a>
         </div>
       </header>
@@ -199,41 +355,70 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Stats Section */}
+        {/* Stats Row */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-pulse">
-            <div className="h-28 bg-white border border-slate-200 rounded-2xl"></div>
-            <div className="h-28 bg-white border border-slate-200 rounded-2xl"></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-pulse">
+            <div className="h-24 bg-white border border-slate-200 rounded-2xl"></div>
+            <div className="h-24 bg-white border border-slate-200 rounded-2xl"></div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            {/* Total Tests Taken */}
-            <div className="p-6 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
               <div className="p-3 bg-indigo-50 rounded-xl text-indigo-650 border border-indigo-100">
-                <BookOpen className="w-6 h-6" />
+                <BookOpen className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-slate-500 text-xs sm:text-sm font-semibold uppercase tracking-wider">एकूण घेतलेल्या चाचण्या</p>
-                <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-800 mt-0.5">{stats.totalTests}</h3>
+                <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">एकूण दिलेल्या चाचण्या</p>
+                <h3 className="text-2xl font-extrabold text-slate-800 mt-0.5">{stats.totalTests}</h3>
               </div>
             </div>
 
-            {/* Average Score */}
-            <div className="p-6 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
-              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-650 border border-emerald-100">
-                <Award className="w-6 h-6" />
+            <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
+              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-655 border border-emerald-100">
+                <Award className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-slate-500 text-xs sm:text-sm font-semibold uppercase tracking-wider">सरासरी टक्केवारी (Score)</p>
-                <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-800 mt-0.5">{stats.averageScore}%</h3>
+                <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">सरासरी टक्केवारी (Score)</p>
+                <h3 className="text-2xl font-extrabold text-slate-800 mt-0.5">{stats.averageScore}%</h3>
               </div>
             </div>
-
           </div>
         )}
 
-        {/* AI Analysis section */}
+        {/* Charts & Analytics Panel */}
+        {!loading && stats.totalTests > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Score progress Line chart */}
+            {renderLineChart()}
+
+            {/* Subject wise accuracy chart */}
+            <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
+              <div className="flex items-center space-x-1.5 text-indigo-650">
+                <BarChart className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase tracking-wider">विषयनिहाय अचूकता (Subject Accuracy)</span>
+              </div>
+              
+              <div className="space-y-3.5 max-h-40 overflow-y-auto pr-1">
+                {stats.subjectProgress.map((item, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-slate-700 truncate max-w-[200px]">{item.subject}</span>
+                      <span className="text-indigo-650 font-sans">{item.percentage}% ({item.total} प्रश्न)</span>
+                    </div>
+                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                      <div 
+                        className="h-full bg-indigo-600 rounded-full transition-all"
+                        style={{ width: `${item.percentage}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI Weak topics analysis section */}
         <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
           <div className="flex items-center space-x-2">
             <Sparkles className="w-5 h-5 text-indigo-600" />
@@ -243,7 +428,6 @@ export default function Dashboard() {
           {loading ? (
             <div className="space-y-2 animate-pulse">
               <div className="h-4 bg-slate-100 rounded w-3/4"></div>
-              <div className="h-4 bg-slate-100 rounded w-5/6"></div>
             </div>
           ) : (
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 text-sm leading-relaxed">
@@ -258,7 +442,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Error boundary inside UI */}
+        {/* Error notification boundary */}
         {errorMsg && (
           <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start space-x-3 text-red-800">
             <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500 mt-0.5" />
@@ -266,11 +450,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Test Configuration & Action panel */}
+        {/* Test Configuration panel */}
         <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-6">
           <div className="flex items-center space-x-2 pb-4 border-b border-slate-100">
             <Layers className="w-5 h-5 text-indigo-650" />
-            <h2 className="text-lg font-bold text-slate-800">चाचणी प्रकार निवडा / Setup Test</h2>
+            <h2 className="text-lg font-bold">चाचणी प्रकार निवडा / Setup Test</h2>
           </div>
 
           {/* Test mode toggle tabs */}
@@ -308,59 +492,92 @@ export default function Dashboard() {
             <div className="space-y-4 animate-pulse">
               <div className="h-10 bg-slate-100 rounded"></div>
             </div>
-          ) : stats.topics.length === 0 ? (
+          ) : stats.subjects.length === 0 ? (
             <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-200">
               <HelpCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
               <p className="text-slate-500 text-sm">डेटाबेसमध्ये सध्या कोणतेही प्रश्न उपलब्ध नाहीत.</p>
-              <p className="text-slate-450 text-xs mt-1">अॅडमीन पॅनेलमध्ये जाऊन प्रथम प्रश्न तयार करा.</p>
+              <p className="text-slate-450 text-xs mt-1">Admin पॅनेलमध्ये जाऊन .json फाईल अपलोड करा.</p>
             </div>
           ) : (
             <div className="space-y-4">
+              
+              {/* TOPIC-WISE MODE SELECTORS */}
               {testMode === 'topic-wise' ? (
-                /* Topic-Wise selection dropdown */
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-slate-600">खालीलपैकी एक विषय निवडा:</label>
-                  <select
-                    value={selectedTopic}
-                    onChange={(e) => setSelectedTopic(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border border-slate-250 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
-                  >
-                    {stats.topics.map((t, idx) => (
-                      <option key={idx} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-slate-400 italic mt-1">
-                    * महत्तम प्रश्न मर्यादा: {process.env.NEXT_PUBLIC_MAX_TOPIC_QUESTIONS || 30} प्रश्न.
-                  </p>
+                <div className="space-y-4">
+                  {/* Subject Dropdown */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-600">विषय (Subject) निवडा:</label>
+                    <select
+                      value={selectedSubject}
+                      onChange={(e) => setSelectedSubject(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-250 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+                    >
+                      {stats.subjects.map((sub, idx) => (
+                        <option key={idx} value={sub.subject}>{sub.subject}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Topic Dropdown (filtered by selected subject) */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-600">घटक / धडा (Topic) निवडा:</label>
+                    <select
+                      value={selectedTopic}
+                      onChange={(e) => setSelectedTopic(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-250 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+                      disabled={!selectedSubject}
+                    >
+                      {stats.subjects
+                        .find(s => s.subject === selectedSubject)
+                        ?.topics.map((t, idx) => (
+                          <option key={idx} value={t}>{t}</option>
+                        ))
+                      }
+                    </select>
+                    <p className="text-xs text-slate-400 italic mt-1">
+                      * महत्तम प्रश्न मर्यादा: {process.env.NEXT_PUBLIC_MAX_TOPIC_QUESTIONS || 30} प्रश्न.
+                    </p>
+                  </div>
                 </div>
               ) : (
-                /* Mixed selection checkboxes */
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-slate-600">सामील करायचे विषय निवडा (बहुनिवड):</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200 max-h-48 overflow-y-auto">
-                    {stats.topics.map((t, idx) => {
-                      const isChecked = selectedMixedTopics.includes(t);
-                      return (
-                        <button
-                          key={idx}
-                          onClick={() => toggleMixedTopic(t)}
-                          className={`flex items-center space-x-3 px-3 py-2 border rounded-lg transition-all text-left text-sm ${
-                            isChecked 
-                              ? 'border-indigo-500 bg-indigo-50 text-indigo-900 font-semibold' 
-                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-855'
-                          }`}
-                        >
-                          <span className={`w-4 h-4 rounded flex items-center justify-center border text-[10px] ${
-                            isChecked 
-                              ? 'bg-indigo-650 border-indigo-550 text-white' 
-                              : 'border-slate-300'
-                          }`}>
-                            {isChecked && '✓'}
-                          </span>
-                          <span className="truncate">{t}</span>
-                        </button>
-                      );
-                    })}
+                /* MIXED TEST MODE SELECTORS */
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-slate-650">चाचणीमध्ये समाविष्ट करायचे घटक निवडा:</label>
+                  
+                  <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
+                    {stats.subjects.map((sub, subIdx) => (
+                      <div key={subIdx} className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <span className="text-xs font-bold text-indigo-750 uppercase tracking-wide border-b border-indigo-100 pb-1 block">
+                          {sub.subject}
+                        </span>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                          {sub.topics.map((t, topIdx) => {
+                            const isChecked = selectedMixedTopics.includes(t);
+                            return (
+                              <button
+                                key={topIdx}
+                                onClick={() => toggleMixedTopic(t)}
+                                className={`flex items-center space-x-3 px-3 py-2 border rounded-lg transition-all text-left text-sm ${
+                                  isChecked 
+                                    ? 'border-indigo-500 bg-indigo-50 text-indigo-900 font-semibold' 
+                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-855'
+                                }`}
+                              >
+                                <span className={`w-4 h-4 rounded flex items-center justify-center border text-[10px] ${
+                                  isChecked 
+                                    ? 'bg-indigo-650 border-indigo-550 text-white' 
+                                    : 'border-slate-300'
+                                }`}>
+                                  {isChecked && '✓'}
+                                </span>
+                                <span className="truncate">{t}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                   <p className="text-xs text-slate-400 italic mt-1 font-sans">
                     * महत्तम प्रश्न मर्यादा: {process.env.NEXT_PUBLIC_MAX_MIXED_QUESTIONS || 40} प्रश्न (यादृच्छिकपणे निवडले जातील).
@@ -373,8 +590,8 @@ export default function Dashboard() {
           {/* Launch test button */}
           <button
             onClick={handleStartTest}
-            disabled={launchingTest || stats.topics.length === 0}
-            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-550 hover:to-indigo-650 disabled:opacity-50 text-white font-bold rounded-xl shadow-md shadow-indigo-600/10 transition-all flex items-center justify-center space-x-2 text-base hover:scale-[1.005]"
+            disabled={launchingTest || stats.subjects.length === 0}
+            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-550 hover:to-indigo-650 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-base hover:scale-[1.005]"
           >
             {launchingTest ? (
               <>

@@ -60,6 +60,7 @@ export default function ResultsPage() {
 
       return {
         question_id: q.id,
+        subject: q.subject,
         topic: q.topic,
         selected_option: selected !== undefined ? selected : null,
         correct_option: q.correct_option,
@@ -226,7 +227,7 @@ export default function ResultsPage() {
                   {/* Top Badge */}
                   <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
                     <span className="text-xs font-semibold px-2 py-0.5 bg-slate-50 border border-slate-200 text-indigo-650 rounded-md">
-                      {q.topic}
+                      {q.subject} • {q.topic}
                     </span>
                     <div className="flex items-center space-x-1.5">
                       {selected === undefined || selected === null ? (

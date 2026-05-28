@@ -207,7 +207,7 @@ export default function QuizPage() {
         {/* Card: Question & Attached Image */}
         <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4">
           <span className="inline-block text-xs font-semibold px-2 py-0.5 bg-indigo-50 text-indigo-650 rounded-md border border-indigo-100">
-            {currentQuestion.topic}
+            {currentQuestion.subject} • {currentQuestion.topic}
           </span>
           <h2 className="text-lg sm:text-xl font-bold text-slate-800 leading-relaxed">
             {currentQuestion.question_text}

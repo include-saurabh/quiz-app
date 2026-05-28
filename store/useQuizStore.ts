@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface Question {
   id: string;
+  subject: string;
   topic: string;
   question_text: string;
   options: string[];

@@ -1,11 +1,17 @@
 -- Enable uuid-ossp if not already enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- MIGRATION UPDATE HELPER:
+-- If you already created the tables previously, run this query in Supabase to add the subject column:
+-- ALTER TABLE questions ADD COLUMN IF NOT EXISTS subject TEXT NOT NULL DEFAULT 'सामान्य';
+-- CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject);
+
 -- ====================================================
 -- Table 1: questions
 -- ====================================================
 CREATE TABLE IF NOT EXISTS questions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    subject TEXT NOT NULL DEFAULT 'सामान्य',
     topic TEXT NOT NULL,
     question_text TEXT NOT NULL,
     options JSONB NOT NULL, -- Array of exactly 4 strings
@@ -15,7 +21,8 @@ CREATE TABLE IF NOT EXISTS questions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Index on topic for faster lookups
+-- Indexes for faster lookups
+CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject);
 CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions(topic);
 
 -- ====================================================

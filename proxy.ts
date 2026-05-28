@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export function proxy(req: NextRequest) {
-  if (req.nextUrl.pathname === '/api/generate-questions') {
+  if (req.nextUrl.pathname === '/api/save-questions') {
     const adminKey = req.headers.get('x-admin-key');
     const expectedPasscode = process.env.ADMIN_PASSCODE;
 
