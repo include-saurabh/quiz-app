@@ -28,6 +28,7 @@ export default function QuizPage() {
   const setTimerActive = useQuizStore((state) => state.setTimerActive);
   const loadQuizBackupState = useQuizStore((state) => state.loadQuizBackupState);
   const resetQuiz = useQuizStore((state) => state.resetQuiz);
+  const login_id = useQuizStore((state) => state.login_id);
 
   // Local component states
   const [toastMessage, setToastMessage] = useState<string>('');
@@ -41,6 +42,13 @@ export default function QuizPage() {
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // 1.5. Redirect unauthenticated users
+  useEffect(() => {
+    if (isClient && !login_id) {
+      router.push('/');
+    }
+  }, [isClient, login_id, router]);
 
   // 2. Load Backup State if not currently playing (e.g. refreshed page)
   useEffect(() => {

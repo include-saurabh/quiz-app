@@ -10,7 +10,7 @@ const mukta = Mukta({
 });
 
 export const metadata: Metadata = {
-  title: 'मराठी AI क्विझ - सराव चाचणी',
+  title: 'MAHATET - सराव चाचणी',
   description: 'मराठीत सोपी आणि सुटसुटीत AI-संचलित सराव चाचणी. लॉगिनशिवाय थेट सराव सुरू करा.',
 };
 

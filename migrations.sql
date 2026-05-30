@@ -95,3 +95,23 @@ CREATE POLICY "Update own insights"
 -- ====================================================
 -- Note: In Supabase, you can set the bucket 'math-figures' to public.
 -- The policy for authenticated/anon uploads can be configured in the Storage UI.
+
+-- ====================================================
+-- Table 4: users (Login IDs mapping to UUIDs)
+-- ====================================================
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    login_id TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Enable RLS on users table
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- Allow public access to users table (insert and select)
+DROP POLICY IF EXISTS "Public select users" ON users;
+CREATE POLICY "Public select users" ON users FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Public insert users" ON users;
+CREATE POLICY "Public insert users" ON users FOR INSERT WITH CHECK (true);
+

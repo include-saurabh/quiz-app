@@ -7,7 +7,7 @@ import { useQuizStore, Question } from '@/store/useQuizStore';
 import { 
   BookOpen, Award, BrainCircuit, Play, 
   HelpCircle, AlertCircle, X, Layers, Settings, Sparkles, TrendingUp, BarChart,
-  Calendar
+  Calendar, User, Lock, LogIn, LogOut
 } from 'lucide-react';
 
 interface ScoreHistoryItem {
@@ -49,6 +49,15 @@ export default function Dashboard() {
   const initUserId = useQuizStore((state) => state.initUserId);
   const startQuiz = useQuizStore((state) => state.startQuiz);
   const user_id = useQuizStore((state) => state.user_id);
+  const login_id = useQuizStore((state) => state.login_id);
+  const login = useQuizStore((state) => state.login);
+  const logout = useQuizStore((state) => state.logout);
+
+  // Login form local states
+  const [isClient, setIsClient] = useState<boolean>(false);
+  const [loginInput, setLoginInput] = useState<string>('');
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
+  const [loginError, setLoginError] = useState<string>('');
 
   // Dashboard Stats
   const [stats, setStats] = useState<{
@@ -135,9 +144,14 @@ export default function Dashboard() {
     }
   };
 
-  // 1. Initialize user ID and fetch stats
+  // 1. Initial mounting check
   useEffect(() => {
-    const id = initUserId();
+    setIsClient(true);
+  }, []);
+
+  // 2. Fetch stats when user logged in
+  useEffect(() => {
+    if (!isClient) return;
     
     // Check notice state
     const noticeDismissed = localStorage.getItem('device_notice_dismissed');
@@ -145,9 +159,15 @@ export default function Dashboard() {
       setShowNotice(false);
     }
 
+    if (!login_id || !user_id) {
+      setLoading(false);
+      return;
+    }
+
     const fetchStats = async () => {
+      setLoading(true);
       try {
-        const res = await fetch(`/api/user-stats?user_id=${id}`);
+        const res = await fetch(`/api/user-stats?user_id=${user_id}`);
         if (!res.ok) throw new Error('Failed to fetch statistics');
         const data = await res.json();
         setStats(data);
@@ -167,7 +187,63 @@ export default function Dashboard() {
     };
 
     fetchStats();
-  }, [initUserId]);
+  }, [isClient, login_id, user_id]);
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    
+    const cleanInput = loginInput.trim();
+    if (cleanInput.length < 3) {
+      setLoginError('लॉगिन आयडी कमीत कमी ३ अक्षरांचा असावा.');
+      return;
+    }
+
+    // Alphanumeric check (letters, digits, underscore allowed)
+    if (!/^[a-zA-Z0-9_]+$/.test(cleanInput)) {
+      setLoginError('लॉगिन आयडीमध्ये फक्त अक्षरे, अंक आणि अंडरस्कोअर (_) असावेत.');
+      return;
+    }
+
+    setLoginLoading(true);
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginId: cleanInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'लॉगिन अयशस्वी झाले. कृपया पुन्हा प्रयत्न करा.');
+      }
+      
+      login(data.loginId, data.userId);
+    } catch (err: any) {
+      console.error(err);
+      setLoginError(err.message || 'लॉगिन अयशस्वी झाले.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    if (window.confirm('तुम्हाला खरोखर लॉगआउट करायचे आहे का?')) {
+      logout();
+      setStats({
+        totalTests: 0,
+        averageScore: 0,
+        insights: null,
+        subjects: [],
+        scoreHistory: [],
+        subjectProgress: [],
+        solvedQuestionIds: [],
+        pastTests: [],
+        needsRevision: [],
+      });
+      setLoginInput('');
+      setLoginError('');
+    }
+  };
 
   // Update selected topic when subject changes in Topic-wise mode
   useEffect(() => {
@@ -407,376 +483,473 @@ export default function Dashboard() {
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-800">MAHATET</h1>
           </div>
           
-          <a 
-            href="/admin"
-            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-655 rounded-xl border border-slate-200 text-xs font-semibold transition-all flex items-center space-x-1"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Admin</span>
-          </a>
+          <div className="flex items-center space-x-2">
+            {isClient && login_id && (
+              <span className="hidden sm:inline-block text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1.5 rounded-xl border border-slate-200">
+                सरावकर्ता: <span className="text-indigo-650">{login_id}</span>
+              </span>
+            )}
+            
+            <a 
+              href="/admin"
+              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-655 rounded-xl border border-slate-200 text-xs font-semibold transition-all flex items-center space-x-1"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Admin</span>
+            </a>
+
+            {isClient && login_id && (
+              <button 
+                onClick={handleLogout}
+                className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl border border-rose-100 text-xs font-bold transition-all flex items-center space-x-1 animate-fade-in"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>बाहेर पडा</span>
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Main Body */}
       <main className="max-w-4xl mx-auto px-4 mt-6 space-y-6 flex-1 w-full">
-        
-        {/* LocalStorage Notice */}
-        {showNotice && (
-          <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-start space-x-3 text-indigo-800 relative animate-fade-in shadow-sm">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 text-indigo-500 mt-0.5" />
-            <div className="flex-1 pr-6 text-sm">
-              <span className="font-semibold">माहिती:</span> आपली प्रगती या डिव्हाइसवर जतन केली आहे. ब्राउझर डेटा साफ केल्याने आपला इतिहास रीसेट होईल.
-            </div>
-            <button 
-              onClick={dismissNotice}
-              className="absolute top-3 right-3 text-indigo-400 hover:text-indigo-600 transition-colors"
-              aria-label="Dismiss notice"
-            >
-              <X className="w-4 h-4" />
-            </button>
+        {!isClient ? (
+          <div className="flex flex-col items-center justify-center py-20 space-y-4">
+            <div className="animate-spin rounded-full h-10 w-10 border-4 border-indigo-650 border-t-transparent shadow-sm"></div>
+            <p className="text-sm font-semibold text-slate-550">लोड होत आहे...</p>
           </div>
-        )}
+        ) : !login_id ? (
+          /* Premium Login Card */
+          <div className="max-w-md mx-auto w-full py-8 px-4 sm:px-6">
+            <div className="bg-white border border-slate-100 rounded-3xl shadow-xl p-8 relative overflow-hidden animate-fade-in">
+              {/* Background design elements */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none"></div>
+              <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl -ml-16 -mb-16 pointer-events-none"></div>
+              
+              <div className="text-center space-y-3 relative z-10">
+                <div className="mx-auto w-14 h-14 bg-indigo-50 border border-indigo-100 text-indigo-650 rounded-2xl flex items-center justify-center shadow-sm">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <div className="space-y-1.5">
+                  <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">लॉगिन करा</h2>
+                  <p className="text-sm text-slate-500 font-semibold px-2">
+                    MAHATET सराव चाचणीमध्ये आपले स्वागत आहे. पुढे जाण्यासाठी आपला लॉगिन आयडी प्रविष्ट करा.
+                  </p>
+                </div>
+              </div>
 
-        {/* Stats Row */}
-        {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-pulse">
-            <div className="h-24 bg-white border border-slate-200 rounded-2xl"></div>
-            <div className="h-24 bg-white border border-slate-200 rounded-2xl"></div>
+              <form onSubmit={handleLoginSubmit} className="mt-8 space-y-4 relative z-10">
+                <div className="space-y-2">
+                  <label htmlFor="login-id" className="block text-sm font-semibold text-slate-700">
+                    लॉगिन आयडी (Login ID)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                      <User className="w-5 h-5" />
+                    </span>
+                    <input
+                      id="login-id"
+                      type="text"
+                      required
+                      value={loginInput}
+                      onChange={(e) => setLoginInput(e.target.value)}
+                      placeholder="उदा. saurabh_123"
+                      className="block w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm font-semibold"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400 italic">
+                    * लॉगिन आयडीमध्ये फक्त अक्षरे, अंक आणि अंडरस्कोअर (_) वापरा (उदा. saurabh123).
+                  </p>
+                </div>
+
+                {loginError && (
+                  <div className="p-3 bg-red-50 border border-red-100 text-red-700 rounded-xl flex items-start space-x-2 text-xs font-semibold">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+                    <span>{loginError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loginLoading}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-550 hover:to-indigo-650 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-sm disabled:opacity-50 hover:scale-[1.005]"
+                >
+                  {loginLoading ? (
+                    <>
+                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></span>
+                      <span>लॉगिन होत आहे...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-4 h-4" />
+                      <span>प्रवेश करा / लॉगिन करा</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
-              <div className="p-3 bg-indigo-50 rounded-xl text-indigo-650 border border-indigo-100">
-                <BookOpen className="w-5 h-5" />
+          <>
+            {/* LocalStorage Notice */}
+            {showNotice && (
+              <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-start space-x-3 text-indigo-800 relative animate-fade-in shadow-sm">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-indigo-500 mt-0.5" />
+                <div className="flex-1 pr-6 text-sm">
+                  <span className="font-semibold">माहिती:</span> आपली प्रगती या डिव्हाइसवर जतन केली आहे. ब्राउझर डेटा साफ केल्याने आपला इतिहास रीसेट होईल.
+                </div>
+                <button 
+                  onClick={dismissNotice}
+                  className="absolute top-3 right-3 text-indigo-400 hover:text-indigo-600 transition-colors"
+                  aria-label="Dismiss notice"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <div>
-                <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">एकूण दिलेल्या चाचण्या</p>
-                <h3 className="text-2xl font-extrabold text-slate-800 mt-0.5">{stats.totalTests}</h3>
-              </div>
-            </div>
+            )}
 
-            <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
-              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-655 border border-emerald-100">
-                <Award className="w-5 h-5" />
+            {/* Stats Row */}
+            {loading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-pulse">
+                <div className="h-24 bg-white border border-slate-200 rounded-2xl"></div>
+                <div className="h-24 bg-white border border-slate-200 rounded-2xl"></div>
               </div>
-              <div>
-                <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">सरासरी टक्केवारी (Score)</p>
-                <h3 className="text-2xl font-extrabold text-slate-800 mt-0.5">{stats.averageScore}%</h3>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Charts & Analytics Panel */}
-        {!loading && stats.totalTests > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Score progress Line chart */}
-            {renderLineChart()}
-
-            {/* Subject wise accuracy chart */}
-            <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
-              <div className="flex items-center space-x-1.5 text-indigo-650">
-                <BarChart className="w-4 h-4" />
-                <span className="text-xs font-bold uppercase tracking-wider">विषयनिहाय अचूकता (Subject Accuracy)</span>
-              </div>
-              
-              <div className="space-y-3.5 max-h-40 overflow-y-auto pr-1">
-                {stats.subjectProgress.map((item, idx) => (
-                  <div key={idx} className="space-y-1">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span className="text-slate-700 truncate max-w-[200px]">{item.subject}</span>
-                      <span className="text-indigo-650 font-sans">{item.percentage}% ({item.total} प्रश्न)</span>
-                    </div>
-                    <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
-                      <div 
-                        className="h-full bg-indigo-600 rounded-full transition-all"
-                        style={{ width: `${item.percentage}%` }}
-                      ></div>
-                    </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
+                  <div className="p-3 bg-indigo-50 rounded-xl text-indigo-650 border border-indigo-100">
+                    <BookOpen className="w-5 h-5" />
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* AI Weak topics analysis section */}
-        <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
-          <div className="flex items-center space-x-2">
-            <Sparkles className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-lg font-bold text-slate-800">AI विश्लेषण: कमकुवत विषय (Weak Topics)</h2>
-          </div>
-          
-          {loading ? (
-            <div className="space-y-2 animate-pulse">
-              <div className="h-4 bg-slate-100 rounded w-3/4"></div>
-            </div>
-          ) : (
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 text-sm leading-relaxed">
-              {stats.insights ? (
-                stats.insights
-              ) : (
-                <span className="text-slate-400 italic">
-                  अधिक चाचण्या घ्या, म्हणजे आपल्या कमकुवत विषयांचे विश्लेषण दिसेल.
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Topics Needing Revision Section */}
-        {!loading && stats.needsRevision && stats.needsRevision.length > 0 && (
-          <div className="p-6 bg-white border border-rose-100 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
-              <AlertCircle className="w-5 h-5 text-rose-500 animate-pulse" />
-              <h2 className="text-lg font-bold text-slate-800">पुनरावलोकन आवश्यक असलेले घटक (Revision Needed)</h2>
-            </div>
-            <p className="text-xs text-slate-550 leading-relaxed">खालील घटकांमध्ये तुमची अचूकता ७०% पेक्षा कमी आहे. चांगल्या गुणांसाठी या घटकांचा अधिक सराव करा:</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {stats.needsRevision.slice(0, 6).map((item, idx) => (
-                <div key={idx} className="p-4 bg-rose-50/30 hover:bg-rose-50/60 border border-rose-100/60 rounded-xl transition-all flex justify-between items-center group">
-                  <div className="space-y-1 pr-2 min-w-0">
-                    <span className="text-[10px] font-semibold text-rose-550 block truncate">{item.subject}</span>
-                    <span className="text-sm font-bold text-slate-800 block truncate group-hover:text-rose-900">{item.topic}</span>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-xs font-bold text-rose-600 block font-sans">{item.percentage}% अचूकता</span>
-                    <span className="text-[10px] text-slate-400 block font-sans">{item.incorrect} चुकीचे प्रश्न</span>
+                  <div>
+                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">एकूण दिलेल्या चाचण्या</p>
+                    <h3 className="text-2xl font-extrabold text-slate-800 mt-0.5">{stats.totalTests}</h3>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {/* Error notification boundary */}
-        {errorMsg && (
-          <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start space-x-3 text-red-800">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500 mt-0.5" />
-            <span className="text-sm">{errorMsg}</span>
-          </div>
-        )}
-
-        {/* Test Configuration panel */}
-        <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-6">
-          <div className="flex items-center space-x-2 pb-4 border-b border-slate-100">
-            <Layers className="w-5 h-5 text-indigo-650" />
-            <h2 className="text-lg font-bold">चाचणी प्रकार निवडा / Setup Test</h2>
-          </div>
-
-          {/* Test mode toggle tabs */}
-          <div className="grid grid-cols-2 p-1.5 bg-slate-100 rounded-xl border border-slate-200">
-            <button
-              onClick={() => {
-                setTestMode('topic-wise');
-                setErrorMsg('');
-              }}
-              className={`py-2 text-sm font-semibold rounded-lg transition-all ${
-                testMode === 'topic-wise' 
-                  ? 'bg-indigo-600 text-white shadow-sm' 
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              विषयनिहाय चाचणी (Topic-Wise)
-            </button>
-            <button
-              onClick={() => {
-                setTestMode('mixed');
-                setErrorMsg('');
-              }}
-              className={`py-2 text-sm font-semibold rounded-lg transition-all ${
-                testMode === 'mixed' 
-                  ? 'bg-indigo-600 text-white shadow-sm' 
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              मिश्रित चाचणी (Mixed Test)
-            </button>
-          </div>
-
-          {/* Topic Selectors */}
-          {loading ? (
-            <div className="space-y-4 animate-pulse">
-              <div className="h-10 bg-slate-100 rounded"></div>
-            </div>
-          ) : stats.subjects.length === 0 ? (
-            <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-200">
-              <HelpCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-              <p className="text-slate-500 text-sm">डेटाबेसमध्ये सध्या कोणतेही प्रश्न उपलब्ध नाहीत.</p>
-              <p className="text-slate-450 text-xs mt-1">Admin पॅनेलमध्ये जाऊन .json फाईल अपलोड करा.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              
-              {/* TOPIC-WISE MODE SELECTORS */}
-              {testMode === 'topic-wise' ? (
-                <div className="space-y-4">
-                  {/* Subject Dropdown */}
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-slate-600">विषय (Subject) निवडा:</label>
-                    <select
-                      value={selectedSubject}
-                      onChange={(e) => setSelectedSubject(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white border border-slate-250 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
-                    >
-                      {stats.subjects.map((sub, idx) => (
-                        <option key={idx} value={sub.subject}>{sub.subject}</option>
-                      ))}
-                    </select>
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-center space-x-4 shadow-sm">
+                  <div className="p-3 bg-emerald-50 rounded-xl text-emerald-655 border border-emerald-100">
+                    <Award className="w-5 h-5" />
                   </div>
-
-                  {/* Topic Dropdown (filtered by selected subject) */}
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-slate-600">घटक / धडा (Topic) निवडा:</label>
-                    <select
-                      value={selectedTopic}
-                      onChange={(e) => setSelectedTopic(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white border border-slate-250 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
-                      disabled={!selectedSubject}
-                    >
-                      {stats.subjects
-                        .find(s => s.subject === selectedSubject)
-                        ?.topics.map((t, idx) => (
-                          <option key={idx} value={t}>{t}</option>
-                        ))
-                      }
-                    </select>
-                    <p className="text-xs text-slate-400 italic mt-1">
-                      * महत्तम प्रश्न मर्यादा: २० प्रश्न.
-                    </p>
+                  <div>
+                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">सरासरी टक्केवारी (Score)</p>
+                    <h3 className="text-2xl font-extrabold text-slate-800 mt-0.5">{stats.averageScore}%</h3>
                   </div>
                 </div>
-              ) : (
-                /* MIXED TEST MODE SELECTORS */
-                <div className="space-y-3">
-                  <label className="block text-sm font-medium text-slate-650">चाचणीमध्ये समाविष्ट करायचे घटक निवडा:</label>
+              </div>
+            )}
+
+            {/* Charts & Analytics Panel */}
+            {!loading && stats.totalTests > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Score progress Line chart */}
+                {renderLineChart()}
+
+                {/* Subject wise accuracy chart */}
+                <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
+                  <div className="flex items-center space-x-1.5 text-indigo-650">
+                    <BarChart className="w-4 h-4" />
+                    <span className="text-xs font-bold uppercase tracking-wider">विषयनिहाय अचूकता (Subject Accuracy)</span>
+                  </div>
                   
-                  <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
-                    {stats.subjects.map((sub, subIdx) => (
-                      <div key={subIdx} className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        <span className="text-xs font-bold text-indigo-750 uppercase tracking-wide border-b border-indigo-100 pb-1 block">
-                          {sub.subject}
-                        </span>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                          {sub.topics.map((t, topIdx) => {
-                            const isChecked = selectedMixedTopics.includes(t);
-                            return (
-                              <button
-                                key={topIdx}
-                                onClick={() => toggleMixedTopic(t)}
-                                className={`flex items-center space-x-3 px-3 py-2 border rounded-lg transition-all text-left text-sm ${
-                                  isChecked 
-                                    ? 'border-indigo-500 bg-indigo-50 text-indigo-900 font-semibold' 
-                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-855'
-                                }`}
-                              >
-                                <span className={`w-4 h-4 rounded flex items-center justify-center border text-[10px] ${
-                                  isChecked 
-                                    ? 'bg-indigo-650 border-indigo-550 text-white' 
-                                    : 'border-slate-300'
-                                }`}>
-                                  {isChecked && '✓'}
-                                </span>
-                                <span className="truncate">{t}</span>
-                              </button>
-                            );
-                          })}
+                  <div className="space-y-3.5 max-h-40 overflow-y-auto pr-1">
+                    {stats.subjectProgress.map((item, idx) => (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span className="text-slate-700 truncate max-w-[200px]">{item.subject}</span>
+                          <span className="text-indigo-650 font-sans">{item.percentage}% ({item.total} प्रश्न)</span>
+                        </div>
+                        <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                          <div 
+                            className="h-full bg-indigo-600 rounded-full transition-all"
+                            style={{ width: `${item.percentage}%` }}
+                          ></div>
                         </div>
                       </div>
                     ))}
                   </div>
-                  <p className="text-xs text-slate-400 italic mt-1 font-sans">
-                    * महत्तम प्रश्न मर्यादा: २० प्रश्न (यादृच्छिकपणे निवडले जातील).
-                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* AI Weak topics analysis section */}
+            <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-5 h-5 text-indigo-600" />
+                <h2 className="text-lg font-bold text-slate-800">AI विश्लेषण: कमकुवत विषय (Weak Topics)</h2>
+              </div>
+              
+              {loading ? (
+                <div className="space-y-2 animate-pulse">
+                  <div className="h-4 bg-slate-100 rounded w-3/4"></div>
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 text-sm leading-relaxed">
+                  {stats.insights ? (
+                    stats.insights
+                  ) : (
+                    <span className="text-slate-400 italic">
+                      अधिक चाचण्या घ्या, म्हणजे आपल्या कमकुवत विषयांचे विश्लेषण दिसेल.
+                    </span>
+                  )}
                 </div>
               )}
             </div>
-          )}
 
-          {/* Launch test button */}
-          <button
-            onClick={handleStartTest}
-            disabled={launchingTest || stats.subjects.length === 0}
-            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-550 hover:to-indigo-650 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-base hover:scale-[1.005]"
-          >
-            {launchingTest ? (
-              <>
-                <span className="animate-spin inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-2"></span>
-                <span>चाचणी लोड होत आहे...</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-5 h-5 fill-current" />
-                <span>चाचणी सुरू करा</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Past Tests History */}
-        {!loading && stats.pastTests && stats.pastTests.length > 0 && (
-          <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
-              <Award className="w-5 h-5 text-indigo-650" />
-              <h2 className="text-lg font-bold text-slate-800">मागील चाचण्यांचा इतिहास / Past Tests ({stats.pastTests.length})</h2>
-            </div>
-            
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-              {stats.pastTests.map((test) => {
-                const percentage = test.total_questions > 0 ? Math.round((test.score / test.total_questions) * 100) : 0;
-                const isSuccess = percentage >= 40;
-                
-                return (
-                  <div 
-                    key={test.id} 
-                    onClick={() => router.push(`/results?test_id=${test.id}`)}
-                    className="p-4 bg-slate-50 hover:bg-indigo-50/20 hover:border-indigo-250 border border-slate-200 rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group cursor-pointer"
-                    title="चाचणी पुनरावलोकन व स्पष्टीकरण पहा"
-                  >
-                    <div className="space-y-1.5 flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                          test.test_type === 'topic-wise' 
-                            ? 'bg-indigo-50 border border-indigo-100 text-indigo-700' 
-                            : 'bg-amber-50 border border-amber-100 text-amber-700'
-                        }`}>
-                          {test.test_type === 'topic-wise' ? 'विषयनिहाय चाचणी' : 'मिश्रित चाचणी'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 flex items-center font-sans">
-                          <Calendar className="w-3 h-3 mr-1" />
-                          {formatDate(test.created_at)}
-                        </span>
+            {/* Topics Needing Revision Section */}
+            {!loading && stats.needsRevision && stats.needsRevision.length > 0 && (
+              <div className="p-6 bg-white border border-rose-100 rounded-2xl shadow-sm space-y-4">
+                <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
+                  <AlertCircle className="w-5 h-5 text-rose-500 animate-pulse" />
+                  <h2 className="text-lg font-bold text-slate-800">पुनरावलोकन आवश्यक असलेले घटक (Revision Needed)</h2>
+                </div>
+                <p className="text-xs text-slate-550 leading-relaxed">खालील घटकांमध्ये तुमची अचूकता ७०% पेक्षा कमी आहे. चांगल्या गुणांसाठी या घटकांचा अधिक सराव करा:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {stats.needsRevision.slice(0, 6).map((item, idx) => (
+                    <div key={idx} className="p-4 bg-rose-50/30 hover:bg-rose-50/60 border border-rose-100/60 rounded-xl transition-all flex justify-between items-center group">
+                      <div className="space-y-1 pr-2 min-w-0">
+                        <span className="text-[10px] font-semibold text-rose-550 block truncate">{item.subject}</span>
+                        <span className="text-sm font-bold text-slate-800 block truncate group-hover:text-rose-900">{item.topic}</span>
                       </div>
-                      
-                      <div className="text-sm font-bold text-slate-800 truncate">
-                        {test.topics && test.topics.length > 0 ? test.topics.join(', ') : 'सामान्य'}
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-bold text-rose-600 block font-sans">{item.percentage}% अचूकता</span>
+                        <span className="text-[10px] text-slate-400 block font-sans">{item.incorrect} चुकीचे प्रश्न</span>
                       </div>
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Error notification boundary */}
+            {errorMsg && (
+              <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start space-x-3 text-red-800">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-500 mt-0.5" />
+                <span className="text-sm">{errorMsg}</span>
+              </div>
+            )}
+
+            {/* Test Configuration panel */}
+            <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-6">
+              <div className="flex items-center space-x-2 pb-4 border-b border-slate-100">
+                <Layers className="w-5 h-5 text-indigo-650" />
+                <h2 className="text-lg font-bold">चाचणी प्रकार निवडा / Setup Test</h2>
+              </div>
+
+              {/* Test mode toggle tabs */}
+              <div className="grid grid-cols-2 p-1.5 bg-slate-100 rounded-xl border border-slate-200">
+                <button
+                  onClick={() => {
+                    setTestMode('topic-wise');
+                    setErrorMsg('');
+                  }}
+                  className={`py-2 text-sm font-semibold rounded-lg transition-all ${
+                    testMode === 'topic-wise' 
+                      ? 'bg-indigo-600 text-white shadow-sm' 
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  विषयनिहाय चाचणी (Topic-Wise)
+                </button>
+                <button
+                  onClick={() => {
+                    setTestMode('mixed');
+                    setErrorMsg('');
+                  }}
+                  className={`py-2 text-sm font-semibold rounded-lg transition-all ${
+                    testMode === 'mixed' 
+                      ? 'bg-indigo-600 text-white shadow-sm' 
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  मिश्रित चाचणी (Mixed Test)
+                </button>
+              </div>
+
+              {/* Topic Selectors */}
+              {loading ? (
+                <div className="space-y-4 animate-pulse">
+                  <div className="h-10 bg-slate-100 rounded"></div>
+                </div>
+              ) : stats.subjects.length === 0 ? (
+                <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-200">
+                  <HelpCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <p className="text-slate-500 text-sm">डेटाबेसमध्ये सध्या कोणतेही प्रश्न उपलब्ध नाहीत.</p>
+                  <p className="text-slate-450 text-xs mt-1">Admin पॅनेलमध्ये जाऊन .json फाईल अपलोड करा.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  
+                  {/* TOPIC-WISE MODE SELECTORS */}
+                  {testMode === 'topic-wise' ? (
+                    <div className="space-y-4">
+                      {/* Subject Dropdown */}
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-slate-600">विषय (Subject) निवडा:</label>
+                        <select
+                          value={selectedSubject}
+                          onChange={(e) => setSelectedSubject(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-white border border-slate-250 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+                        >
+                          {stats.subjects.map((sub, idx) => (
+                            <option key={idx} value={sub.subject}>{sub.subject}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Topic Dropdown (filtered by selected subject) */}
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-slate-600">घटक / धडा (Topic) निवडा:</label>
+                        <select
+                          value={selectedTopic}
+                          onChange={(e) => setSelectedTopic(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-white border border-slate-250 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+                          disabled={!selectedSubject}
+                        >
+                          {stats.subjects
+                            .find(s => s.subject === selectedSubject)
+                            ?.topics.map((t, idx) => (
+                              <option key={idx} value={t}>{t}</option>
+                            ))
+                          }
+                        </select>
+                        <p className="text-xs text-slate-400 italic mt-1">
+                          * महत्तम प्रश्न मर्यादा: २० प्रश्न.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* MIXED TEST MODE SELECTORS */
+                    <div className="space-y-3">
+                      <label className="block text-sm font-medium text-slate-650">चाचणीमध्ये समाविष्ट करायचे घटक निवडा:</label>
+                      
+                      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
+                        {stats.subjects.map((sub, subIdx) => (
+                          <div key={subIdx} className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                            <span className="text-xs font-bold text-indigo-750 uppercase tracking-wide border-b border-indigo-100 pb-1 block">
+                              {sub.subject}
+                            </span>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                              {sub.topics.map((t, topIdx) => {
+                                const isChecked = selectedMixedTopics.includes(t);
+                                return (
+                                  <button
+                                    key={topIdx}
+                                    onClick={() => toggleMixedTopic(t)}
+                                    className={`flex items-center space-x-3 px-3 py-2 border rounded-lg transition-all text-left text-sm ${
+                                      isChecked 
+                                        ? 'border-indigo-500 bg-indigo-50 text-indigo-900 font-semibold' 
+                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-350 hover:text-slate-855'
+                                    }`}
+                                  >
+                                    <span className={`w-4 h-4 rounded flex items-center justify-center border text-[10px] ${
+                                      isChecked 
+                                        ? 'bg-indigo-650 border-indigo-550 text-white' 
+                                        : 'border-slate-300'
+                                    }`}>
+                                      {isChecked && '✓'}
+                                    </span>
+                                    <span className="truncate">{t}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-400 italic mt-1 font-sans">
+                        * महत्तम प्रश्न मर्यादा: २० प्रश्न (यादृच्छिकपणे निवडले जातील).
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Launch test button */}
+              <button
+                onClick={handleStartTest}
+                disabled={launchingTest || stats.subjects.length === 0}
+                className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-550 hover:to-indigo-650 disabled:opacity-50 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-base hover:scale-[1.005]"
+              >
+                {launchingTest ? (
+                  <>
+                    <span className="animate-spin inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-2"></span>
+                    <span>चाचणी लोड होत आहे...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5 fill-current" />
+                    <span>चाचणी सुरू करा</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Past Tests History */}
+            {!loading && stats.pastTests && stats.pastTests.length > 0 && (
+              <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-sm space-y-4">
+                <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
+                  <Award className="w-5 h-5 text-indigo-650" />
+                  <h2 className="text-lg font-bold text-slate-800">मागील चाचण्यांचा इतिहास / Past Tests ({stats.pastTests.length})</h2>
+                </div>
+                
+                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                  {stats.pastTests.map((test) => {
+                    const percentage = test.total_questions > 0 ? Math.round((test.score / test.total_questions) * 100) : 0;
+                    const isSuccess = percentage >= 40;
                     
-                    <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
-                      {/* Score Badge */}
-                      <div className="flex items-center space-x-2">
-                        <div className="text-right">
-                          <div className="text-xs text-slate-400 font-medium">गुण (Score)</div>
-                          <div className="text-sm font-bold text-slate-800 font-sans">
-                            {test.score} / {test.total_questions}
+                    return (
+                      <div 
+                        key={test.id} 
+                        onClick={() => router.push(`/results?test_id=${test.id}`)}
+                        className="p-4 bg-slate-50 hover:bg-indigo-50/20 hover:border-indigo-250 border border-slate-200 rounded-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group cursor-pointer"
+                        title="चाचणी पुनरावलोकन व स्पष्टीकरण पहा"
+                      >
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                              test.test_type === 'topic-wise' 
+                                ? 'bg-indigo-50 border border-indigo-100 text-indigo-700' 
+                                : 'bg-amber-50 border border-amber-100 text-amber-700'
+                            }`}>
+                              {test.test_type === 'topic-wise' ? 'विषयनिहाय चाचणी' : 'मिश्रित चाचणी'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 flex items-center font-sans">
+                              <Calendar className="w-3 h-3 mr-1" />
+                              {formatDate(test.created_at)}
+                            </span>
+                          </div>
+                          
+                          <div className="text-sm font-bold text-slate-800 truncate">
+                            {test.topics && test.topics.length > 0 ? test.topics.join(', ') : 'सामान्य'}
                           </div>
                         </div>
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold font-sans shadow-sm ${
-                          isSuccess 
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                            : 'bg-red-50 text-red-700 border border-red-200'
-                        }`}>
-                          {percentage}%
+                        
+                        <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
+                          {/* Score Badge */}
+                          <div className="flex items-center space-x-2">
+                            <div className="text-right">
+                              <div className="text-xs text-slate-400 font-medium">गुण (Score)</div>
+                              <div className="text-sm font-bold text-slate-800 font-sans">
+                                {test.score} / {test.total_questions}
+                              </div>
+                            </div>
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold font-sans shadow-sm ${
+                              isSuccess 
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                : 'bg-red-50 text-red-700 border border-red-200'
+                            }`}>
+                              {percentage}%
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
       </main>

@@ -1058,8 +1058,8 @@ export default function AdminPage() {
                         <div className="text-sm font-bold text-slate-800 truncate">
                           Topics: {test.topics && test.topics.length > 0 ? test.topics.join(', ') : 'सामान्य'}
                         </div>
-                        <div className="text-[10px] text-slate-400 font-sans select-all">
-                          User ID: {test.user_id}
+                        <div className="text-[11px] text-indigo-650 font-semibold select-all font-sans">
+                          सरावकर्ता: <span className="font-bold font-mukta">{test.login_id}</span>
                         </div>
                       </div>
                       

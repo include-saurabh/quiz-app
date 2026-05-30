@@ -15,6 +15,7 @@ export interface Question {
 
 export interface QuizState {
   user_id: string;
+  login_id: string;
   isPlaying: boolean;
   testType: 'topic-wise' | 'mixed' | null;
   selectedTopics: string[];
@@ -27,6 +28,8 @@ export interface QuizState {
   
   // Actions
   initUserId: () => string;
+  login: (loginId: string, uuid: string) => void;
+  logout: () => void;
   startQuiz: (
     type: 'topic-wise' | 'mixed', 
     topics: string[], 
@@ -49,6 +52,7 @@ export const useQuizStore = create<QuizState>()(
   persist(
     (set, get) => ({
       user_id: '',
+      login_id: '',
       isPlaying: false,
       testType: null,
       selectedTopics: [],
@@ -66,6 +70,15 @@ export const useQuizStore = create<QuizState>()(
           set({ user_id: id });
         }
         return id;
+      },
+
+      login: (loginId, uuid) => {
+        set({ login_id: loginId, user_id: uuid });
+      },
+
+      logout: () => {
+        set({ login_id: '', user_id: '' });
+        get().clearQuizBackupState();
       },
 
       startQuiz: (type, topics, questions, timePerQuestion = 60) => {
@@ -220,7 +233,7 @@ export const useQuizStore = create<QuizState>()(
     }),
     {
       name: 'marathi-quiz-store', // name of the item in the storage (defaults to localStorage)
-      partialize: (state) => ({ user_id: state.user_id }), // only persist user_id through standard Zustand store to avoid stale states
+      partialize: (state) => ({ user_id: state.user_id, login_id: state.login_id }), // only persist user_id and login_id
     }
   )
 );

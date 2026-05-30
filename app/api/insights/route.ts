@@ -26,30 +26,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'No test history found. Skipping analysis.' });
     }
 
-    // 2. Aggregate performance by topic
-    const topicStats: Record<string, { total: number; correct: number }> = {};
+    // 2. Aggregate performance by subject and topic
+    const statsMap: Record<string, { subject: string; topic: string; total: number; correct: number }> = {};
 
     history.forEach((test) => {
       const results = Array.isArray(test.question_results) ? test.question_results : [];
       results.forEach((qRes: any) => {
         const topic = qRes.topic || 'सामान्य';
+        const subject = qRes.subject || 'सामान्य';
         const isCorrect = qRes.is_correct === true;
+        const key = `${subject} - ${topic}`;
 
-        if (!topicStats[topic]) {
-          topicStats[topic] = { total: 0, correct: 0 };
+        if (!statsMap[key]) {
+          statsMap[key] = { subject, topic, total: 0, correct: 0 };
         }
-        topicStats[topic].total += 1;
+        statsMap[key].total += 1;
         if (isCorrect) {
-          topicStats[topic].correct += 1;
+          statsMap[key].correct += 1;
         }
       });
     });
 
     // Simplify stats for prompt context (calculate accuracy rates)
-    const performanceSummary = Object.entries(topicStats).map(([topic, stats]) => {
+    const performanceSummary = Object.values(statsMap).map((stats) => {
       const pct = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
       return {
-        topic,
+        subject: stats.subject,
+        topic: stats.topic,
         attempts: stats.total,
         correct: stats.correct,
         accuracy_percentage: `${pct}%`,
@@ -69,12 +72,17 @@ export async function POST(req: NextRequest) {
     
     const performanceJsonStr = JSON.stringify(performanceSummary, null, 2);
 
-    const prompt = `You are an educational assistant. Based on the following quiz performance data for a student, identify their 2-3 weakest topics and provide a brief, encouraging summary in Marathi.
+    const prompt = `You are an educational assistant for MAHATET (Maharashtra Teacher Eligibility Test). 
+Based on the following student performance data (which includes subject, topic, and accuracy), identify their weakest subjects and topics, and provide a brief performance summary and specific improvement suggestions in Marathi.
 
-Performance Data (JSON):
+Performance Data (JSON format):
 ${performanceJsonStr}
 
-Respond ONLY in Marathi in 2-3 sentences. Be specific about topics and encouraging in tone.`;
+Please structure your response in Marathi, and do the following:
+1. Summarize their overall weak areas, referring to the specific subjects and topics.
+2. Give clear, actionable advice/suggestions on how they can improve in these subjects and topics.
+3. Keep the tone encouraging and professional.
+4. Keep the total response concise (around 3 to 4 sentences).`;
 
     const result = await model.generateContent(prompt);
     const summaryMarathi = result.response.text().trim();

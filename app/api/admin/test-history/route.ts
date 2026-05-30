@@ -14,19 +14,36 @@ export async function POST(req: NextRequest) {
     const supabase = getSupabaseServer();
 
     // 2. Fetch all test history records
-    const { data, error } = await supabase
+    const { data: testData, error: testError } = await supabase
       .from('test_history')
       .select('id, user_id, score, total_questions, test_type, topics, created_at')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching admin test history:', error);
-      throw error;
+    if (testError) {
+      console.error('Error fetching admin test history:', testError);
+      throw testError;
     }
+
+    // 3. Fetch user mappings to map UUID user_id to user login_id
+    const { data: usersData, error: usersError } = await supabase
+      .from('users')
+      .select('id, login_id');
+
+    const userMap: Record<string, string> = {};
+    if (!usersError && usersData) {
+      usersData.forEach((u: any) => {
+        userMap[u.id] = u.login_id;
+      });
+    }
+
+    const testHistoryMapped = (testData || []).map((item: any) => ({
+      ...item,
+      login_id: userMap[item.user_id] || item.user_id,
+    }));
 
     return NextResponse.json({
       success: true,
-      testHistory: data || [],
+      testHistory: testHistoryMapped,
     });
   } catch (error: any) {
     console.error('Admin test history route error:', error);

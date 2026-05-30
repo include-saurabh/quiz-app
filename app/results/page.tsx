@@ -19,6 +19,7 @@ export default function ResultsPage() {
   const testType = useQuizStore((state) => state.testType);
   const selectedTopics = useQuizStore((state) => state.selectedTopics);
   const resetQuiz = useQuizStore((state) => state.resetQuiz);
+  const login_id = useQuizStore((state) => state.login_id);
 
   const [isClient, setIsClient] = useState(false);
   const [testId, setTestId] = useState<string | null>(null);
@@ -48,6 +49,13 @@ export default function ResultsPage() {
       setTestId(params.get('test_id'));
     }
   }, []);
+
+  // 1.5. Redirect unauthenticated users
+  useEffect(() => {
+    if (isClient && !login_id) {
+      router.push('/');
+    }
+  }, [isClient, login_id, router]);
 
   // 2. Main data fetching / calculation
   useEffect(() => {
